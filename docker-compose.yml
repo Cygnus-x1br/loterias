@@ -1,0 +1,77 @@
+# docker-compose.yml
+# Ambiente de desenvolvimento Laravel 13 no WSL
+
+services:
+
+  # PHP-FPM 8.3 — processa o código PHP da aplicação
+  app:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    container_name: laravel_app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    networks:
+      - laravel_network
+    depends_on:
+      - mariadb
+
+  # Nginx — servidor web, repassa .php para o container "app"
+  webserver:
+    image: nginx:stable-alpine
+    container_name: laravel_nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www/html
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - laravel_network
+    depends_on:
+      - app
+
+  # Node.js — servidor de desenvolvimento do Vite (assets Blade/Livewire/Alpine)
+  vite:
+    image: node:20-alpine
+    container_name: laravel_vite
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    networks:
+      - laravel_network
+    depends_on:
+      - app
+
+  # MariaDB — banco de dados, com volume nomeado para persistência
+  mariadb:
+    image: mariadb:11
+    container_name: laravel_mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: laravel
+      MYSQL_USER: laravel
+      MYSQL_PASSWORD: laravel
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    ports:
+      - "3307:3306"   # host:container — ajuste se já tiver MariaDB local na 3306
+    networks:
+      - laravel_network
+
+networks:
+  laravel_network:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+    driver: local
