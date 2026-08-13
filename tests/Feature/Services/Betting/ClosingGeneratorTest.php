@@ -154,7 +154,7 @@ class ClosingGeneratorTest extends TestCase
 
         $closing = Closing::factory()->create([
             'user_id' => $user->id,
-            'method' => 'random',
+            'method' => 'wheel',
             'status' => 'draft',
             'base_numbers' => range(1, 15),
             'bet_size' => 15,

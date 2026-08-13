@@ -14,6 +14,15 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
 
     public string $status = '';
 
+    public bool $confirmingAllBetsDeletion = false;
+
+    public string $deleteAllConfirmationInput = '';
+
+    /**
+     * Palavra-chave exigida para confirmar a exclusão em massa.
+     */
+    protected string $deleteAllConfirmationKeyword = 'EXCLUIR';
+
     /**
      * Reinicia a paginação ao alterar a busca.
      */
@@ -71,11 +80,33 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
     }
 
     /**
-     * Consulta paginada das apostas do usuário autenticado.
+     * Indica se algum filtro de busca ou status está ativo.
      */
-    public function with(): array
+    public function hasActiveFilters(): bool
     {
-        $bets = Bet::query()
+        return $this->search !== '' || $this->status !== '';
+    }
+
+    /**
+     * Retorna o nome amigável do status de filtro selecionado.
+     */
+    public function statusFilterLabel(string $status): string
+    {
+        return match ($status) {
+            'active' => 'Ativas',
+            'inactive' => 'Inativas',
+            'checked' => 'Conferidas',
+            default => $status,
+        };
+    }
+
+    /**
+     * Query das apostas do usuário autenticado, respeitando
+     * os filtros de busca e status atualmente aplicados.
+     */
+    protected function filteredBetsQuery()
+    {
+        return Bet::query()
             ->where('user_id', Auth::id())
             ->when(
                 $this->search !== '',
@@ -93,12 +124,81 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
             ->when(
                 $this->status !== '',
                 fn ($query) => $query->where('status', $this->status)
-            )
+            );
+    }
+
+    /**
+     * Abre o modal de confirmação para exclusão em massa,
+     * considerando os filtros atualmente aplicados.
+     */
+    public function confirmAllBetsDeletion(): void
+    {
+        $this->deleteAllConfirmationInput = '';
+        $this->resetErrorBag('deleteAllConfirmationInput');
+        $this->confirmingAllBetsDeletion = true;
+    }
+
+    /**
+     * Fecha o modal sem executar a exclusão em massa.
+     */
+    public function cancelAllBetsDeletion(): void
+    {
+        $this->reset([
+            'confirmingAllBetsDeletion',
+            'deleteAllConfirmationInput',
+        ]);
+
+        $this->resetErrorBag('deleteAllConfirmationInput');
+    }
+
+    /**
+     * Exclui as apostas do usuário autenticado que correspondem
+     * aos filtros atualmente aplicados (ou todas, se nenhum
+     * filtro estiver ativo).
+     *
+     * Exige que o usuário digite a palavra-chave de confirmação,
+     * dado o impacto irreversível desta ação.
+     */
+    public function deleteAllBets(): void
+    {
+        $confirmationInput = mb_strtoupper(trim($this->deleteAllConfirmationInput));
+
+        if ($confirmationInput !== $this->deleteAllConfirmationKeyword) {
+            $this->addError(
+                'deleteAllConfirmationInput',
+                'Digite "'.$this->deleteAllConfirmationKeyword.'" para confirmar a exclusão.'
+            );
+
+            return;
+        }
+
+        $deletedCount = $this->filteredBetsQuery()->count();
+
+        $this->filteredBetsQuery()->delete();
+
+        session()->flash(
+            'success',
+            $deletedCount === 1
+                ? '1 aposta excluída com sucesso.'
+                : "{$deletedCount} apostas excluídas com sucesso."
+        );
+
+        $this->cancelAllBetsDeletion();
+        $this->resetPage();
+    }
+
+    /**
+     * Consulta paginada das apostas do usuário autenticado.
+     */
+    public function with(): array
+    {
+        $bets = $this->filteredBetsQuery()
             ->latest()
             ->paginate(10);
 
         return [
             'bets' => $bets,
+            'filteredBetsCount' => $this->filteredBetsQuery()->count(),
         ];
     }
 };
@@ -136,26 +236,52 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
             </p>
         </div>
 
-        <a
-            href="{{ route('bets.create') }}"
-            class="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-700"
-        >
-            <svg
-                class="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-            >
-                <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 4v16m8-8H4"
-                />
-            </svg>
+        <div class="flex flex-col-reverse gap-2 sm:flex-row">
+            @if ($filteredBetsCount > 0)
+                <button
+                    type="button"
+                    wire:click="confirmAllBetsDeletion"
+                    class="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50"
+                >
+                    <svg
+                        class="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
+                        />
+                    </svg>
 
-            Nova aposta
-        </a>
+                    {{ $this->hasActiveFilters() ? 'Excluir apostas filtradas' : 'Excluir todas as apostas' }}
+                </button>
+            @endif
+
+            <a
+                href="{{ route('bets.create') }}"
+                class="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-700"
+            >
+                <svg
+                    class="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                >
+                    <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 4v16m8-8H4"
+                    />
+                </svg>
+
+                Nova aposta
+            </a>
+        </div>
     </section>
 
     @if (session('success'))
@@ -588,4 +714,121 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
             </p>
         </div>
     </section>
+
+    @if ($confirmingAllBetsDeletion)
+        <div
+            class="fixed inset-0 z-50 flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="all-bets-deletion-title"
+        >
+            <div
+                class="fixed inset-0 bg-slate-900/50"
+                wire:click="cancelAllBetsDeletion"
+            ></div>
+
+            <div class="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+                        <svg
+                            class="h-5 w-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M12 9v3m0 4h.01M10.3 3.7L2.8 17a2 2 0 001.7 3h15a2 2 0 001.7-3L13.7 3.7a2 2 0 00-3.4 0z"
+                            />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <h3
+                            id="all-bets-deletion-title"
+                            class="text-base font-bold text-slate-900"
+                        >
+                            {{ $this->hasActiveFilters() ? 'Excluir apostas filtradas' : 'Excluir todas as apostas' }}
+                        </h3>
+
+                        <p class="mt-1 text-sm leading-6 text-slate-500">
+                            Esta ação excluirá permanentemente
+                            <strong class="text-slate-700">
+                                {{ $filteredBetsCount }}
+                                {{ $filteredBetsCount === 1 ? 'aposta' : 'apostas' }}
+                            </strong>
+                            @if ($this->hasActiveFilters())
+                                correspondentes aos filtros aplicados atualmente, incluindo apostas vinculadas a fechamentos.
+                            @else
+                                da sua conta, incluindo apostas vinculadas a fechamentos.
+                            @endif
+                            Esta ação não pode ser desfeita.
+                        </p>
+                    </div>
+                </div>
+
+                @if ($this->hasActiveFilters())
+                    <div class="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+                        <span class="font-semibold text-slate-700">Filtros aplicados:</span>
+                        @if ($search !== '')
+                            busca "{{ $search }}"
+                        @endif
+                        @if ($search !== '' && $status !== '')
+                            &middot;
+                        @endif
+                        @if ($status !== '')
+                            status "{{ $this->statusFilterLabel($status) }}"
+                        @endif
+                    </div>
+                @endif
+
+                <div class="mt-5">
+                    <label
+                        for="deleteAllConfirmationInput"
+                        class="block text-sm font-semibold text-slate-700"
+                    >
+                        Para confirmar, digite <strong>EXCLUIR</strong> abaixo
+                    </label>
+
+                    <input
+                        id="deleteAllConfirmationInput"
+                        type="text"
+                        wire:model="deleteAllConfirmationInput"
+                        placeholder="EXCLUIR"
+                        autocomplete="off"
+                        class="mt-2 block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-rose-500 focus:ring-rose-500"
+                    >
+
+                    @error('deleteAllConfirmationInput')
+                        <p class="mt-2 text-sm font-medium text-rose-600">
+                            {{ $message }}
+                        </p>
+                    @enderror
+                </div>
+
+                <div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button
+                        type="button"
+                        wire:click="cancelAllBetsDeletion"
+                        wire:loading.attr="disabled"
+                        class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        Cancelar
+                    </button>
+
+                    <button
+                        type="button"
+                        wire:click="deleteAllBets"
+                        wire:loading.attr="disabled"
+                        wire:target="deleteAllBets"
+                        class="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-600/20 transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {{ $this->hasActiveFilters() ? 'Excluir apostas filtradas' : 'Excluir todas as apostas' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

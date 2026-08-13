@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Actions\Logout;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
@@ -39,6 +40,6 @@ Route::middleware('auth')->group(function () {
     Volt::route('profile', 'pages.auth.profile')
         ->name('profile');
 
-    Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])
+    Route::match(['get', 'post'], 'logout', Logout::class)
         ->name('logout');
 });

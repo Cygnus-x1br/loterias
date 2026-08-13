@@ -4,6 +4,12 @@ namespace App\Services\Betting;
 
 use App\Models\Bet;
 use App\Models\Closing;
+use App\Services\Betting\Generators\BalancedBetGenerator;
+use App\Services\Betting\Generators\BetGeneratorInterface;
+use App\Services\Betting\Generators\IntegralBetGenerator;
+use App\Services\Betting\Generators\RandomBetGenerator;
+use App\Services\Betting\Generators\ReducedBetGenerator;
+use App\Services\Betting\Generators\WheelBetGenerator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use LogicException;
@@ -11,6 +17,44 @@ use Throwable;
 
 class ClosingGenerator
 {
+    /**
+     * Geradores disponíveis por método.
+     *
+     * @var array<string, class-string<BetGeneratorInterface>>
+     */
+    protected static array $generators = [
+        'integral' => IntegralBetGenerator::class,
+        'random' => RandomBetGenerator::class,
+        'balanced' => BalancedBetGenerator::class,
+        'wheel' => WheelBetGenerator::class,
+        'reduced' => ReducedBetGenerator::class,
+    ];
+
+    /**
+     * Retorna os métodos de fechamento que já possuem
+     * geração implementada nesta versão da plataforma.
+     *
+     * @return array<int, string>
+     */
+    public static function implementedMethods(): array
+    {
+        return array_keys(self::$generators);
+    }
+
+    /**
+     * Resolve e retorna a instância do gerador para o método especificado.
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function resolveGenerator(string $method): BetGeneratorInterface
+    {
+        if (! isset(self::$generators[$method])) {
+            throw new InvalidArgumentException("Gerador para o método '{$method}' não encontrado.");
+        }
+
+        return app(self::$generators[$method]);
+    }
+
     /**
      * Executa a geração de apostas de um fechamento.
      *
@@ -21,33 +65,37 @@ class ClosingGenerator
     public function generate(Closing $closing): int
     {
         try {
+            // Validações gerais do fechamento
             $this->validateClosing($closing);
 
-            if ($closing->method !== 'integral') {
-                throw new LogicException(
-                    "O método '{$closing->method}' ainda não possui um gerador implementado."
-                );
-            }
+            // Resolve o gerador específico para o método
+            $generator = $this->resolveGenerator($closing->method);
 
-            return DB::transaction(function () use ($closing): int {
+            // Validações específicas do gerador (chamado antes da transação)
+            $generator->validate($closing);
+
+            return DB::transaction(function () use ($closing, $generator): int {
+                // Atualiza o status para 'processing' dentro da transação
                 $closing->update([
                     'status' => 'processing',
                 ]);
 
                 $createdBets = 0;
+                // A responsabilidade de gerar apostas únicas é do BetGenerator específico.
+                // Não é necessário um $uniqueBets aqui se o gerador já garante isso.
 
-                foreach (
-                    $this->combinations(
-                        $closing->base_numbers,
-                        $closing->bet_size
-                    ) as $combination
-                ) {
+                foreach ($generator->generate($closing) as $combination) {
                     if (
                         $closing->planned_bets !== null
                         && $createdBets >= $closing->planned_bets
                     ) {
                         break;
                     }
+
+                    // A combinação já deve vir ordenada e única do gerador.
+                    // Se houver necessidade de garantir unicidade global aqui,
+                    // um mecanismo mais robusto (ex: hash da combinação) seria necessário,
+                    // mas por enquanto confiamos no gerador.
 
                     Bet::create([
                         'user_id' => $closing->user_id,
@@ -73,6 +121,7 @@ class ClosingGenerator
                     );
                 }
 
+                // Atualiza o status para 'completed' se tudo ocorreu bem
                 $closing->update([
                     'status' => 'completed',
                 ]);
@@ -80,6 +129,10 @@ class ClosingGenerator
                 return $createdBets;
             });
         } catch (Throwable $exception) {
+            // Se uma exceção ocorrer, a transação já foi revertida.
+            // Precisamos recarregar o modelo para garantir que ele reflita o estado atual do DB
+            // antes de tentar atualizá-lo novamente.
+            $closing->refresh(); // <--- LINHA CRÍTICA ADICIONADA AQUI
             $closing->update([
                 'status' => 'failed',
             ]);
@@ -89,7 +142,7 @@ class ClosingGenerator
     }
 
     /**
-     * Valida os parâmetros necessários para gerar o fechamento.
+     * Valida os parâmetros gerais do fechamento.
      */
     protected function validateClosing(Closing $closing): void
     {
@@ -133,6 +186,7 @@ class ClosingGenerator
             );
         }
 
+        // Esta validação é geral e deve permanecer aqui.
         if ($betSize > count($normalizedNumbers)) {
             throw new InvalidArgumentException(
                 'O tamanho da aposta não pode ser maior que o grupo-base.'
@@ -148,44 +202,8 @@ class ClosingGenerator
             );
         }
 
+        // Garante que as dezenas do grupo-base estejam sempre ordenadas
         sort($normalizedNumbers);
-
         $closing->base_numbers = $normalizedNumbers;
-    }
-
-    /**
-     * Gera combinações de forma incremental para evitar carregar
-     * todas as combinações na memória ao mesmo tempo.
-     *
-     * @param array<int, int> $numbers
-     *
-     * @return \Generator<int, array<int, int>>
-     */
-    protected function combinations(
-        array $numbers,
-        int $size,
-        int $offset = 0,
-        array $current = []
-    ): \Generator {
-        if (count($current) === $size) {
-            yield array_values($current);
-
-            return;
-        }
-
-        $remainingNeeded = $size - count($current);
-        $lastStart = count($numbers) - $remainingNeeded;
-
-        for ($index = $offset; $index <= $lastStart; $index++) {
-            $next = $current;
-            $next[] = (int) $numbers[$index];
-
-            yield from $this->combinations(
-                $numbers,
-                $size,
-                $index + 1,
-                $next
-            );
-        }
     }
 }

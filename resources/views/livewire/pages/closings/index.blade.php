@@ -6,7 +6,6 @@ use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\WithPagination;
 use Livewire\Volt\Component;
-// use Throwable;
 
 new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
 {
@@ -17,6 +16,14 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
     public string $status = '';
 
     public string $method = '';
+
+    public bool $confirmingClosingDeletion = false;
+
+    public ?int $closingToDelete = null;
+
+    public string $closingToDeleteName = '';
+
+    public int $closingToDeleteBetsCount = 0;
 
     public function updatedSearch(): void
     {
@@ -45,9 +52,9 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
     }
 
     /**
-     * Exclui somente um fechamento pertencente ao usuário autenticado.
+     * Abre o modal de confirmação de exclusão de um fechamento.
      */
-    public function delete(int $closingId): void
+    public function confirmClosingDeletion(int $closingId): void
     {
         $closing = Closing::query()
             ->where('id', $closingId)
@@ -63,13 +70,64 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
             return;
         }
 
+        $this->closingToDelete = $closing->id;
+        $this->closingToDeleteName = $closing->name;
+        $this->closingToDeleteBetsCount = $closing->bets()->count();
+        $this->confirmingClosingDeletion = true;
+    }
+
+    /**
+     * Fecha o modal de confirmação sem executar nenhuma exclusão.
+     */
+    public function cancelClosingDeletion(): void
+    {
+        $this->reset([
+            'confirmingClosingDeletion',
+            'closingToDelete',
+            'closingToDeleteName',
+            'closingToDeleteBetsCount',
+        ]);
+    }
+
+    /**
+     * Exclui somente um fechamento pertencente ao usuário autenticado.
+     *
+     * Quando $deleteBets é verdadeiro, as apostas vinculadas também
+     * são excluídas. Caso contrário, elas são apenas desvinculadas
+     * (comportamento padrão definido pela migration, via nullOnDelete).
+     */
+    public function deleteClosing(bool $deleteBets = false): void
+    {
+        $closing = Closing::query()
+            ->where('id', $this->closingToDelete)
+            ->where('user_id', Auth::id())
+            ->first();
+
+        if (! $closing) {
+            session()->flash(
+                'error',
+                'Fechamento não encontrado ou você não tem permissão para excluí-lo.'
+            );
+
+            $this->cancelClosingDeletion();
+
+            return;
+        }
+
+        if ($deleteBets) {
+            $closing->bets()->delete();
+        }
+
         $closing->delete();
 
         session()->flash(
             'success',
-            'Fechamento excluído com sucesso.'
+            $deleteBets
+                ? 'Fechamento e apostas vinculadas excluídos com sucesso.'
+                : 'Fechamento excluído com sucesso. As apostas vinculadas foram mantidas e desvinculadas.'
         );
 
+        $this->cancelClosingDeletion();
         $this->resetPage();
     }
 
@@ -100,6 +158,15 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
             'failed' => 'Falhou',
             default => ucfirst((string) $status),
         };
+    }
+
+    /**
+     * Indica se o fechamento pode ser executado nesta etapa.
+     */
+    public function canGenerate(Closing $closing): bool
+    {
+        return $closing->status === 'draft'
+            && in_array($closing->method, ClosingGenerator::implementedMethods(), true);
     }
 
     /**
@@ -137,8 +204,9 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
             'closings' => $closings,
         ];
     }
+
     /**
-     * Gera as apostas de um fechamento integral.
+     * Gera as apostas de um fechamento.
      */
     public function generate(int $closingId): void
     {
@@ -165,6 +233,15 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
             return;
         }
 
+        if (! $this->canGenerate($closing)) {
+            session()->flash(
+                'error',
+                'Este método de fechamento ainda não possui geração implementada.'
+            );
+
+            return;
+        }
+
         try {
             $createdBets = app(ClosingGenerator::class)->generate($closing);
 
@@ -172,6 +249,8 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                 'success',
                 "{$createdBets} aposta(s) gerada(s) com sucesso."
             );
+        } catch (\InvalidArgumentException|\LogicException $exception) {
+            session()->flash('error', $exception->getMessage());
         } catch (\Throwable $exception) {
             report($exception);
 
@@ -331,8 +410,8 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                     class="mt-2 block w-full rounded-xl border-slate-300 py-2.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 >
                     <option value="">Todos os métodos</option>
-                    <option value="reduced">Fechamento reduzido</option>
                     <option value="integral">Combinação integral</option>
+                    <option value="reduced">Fechamento reduzido</option>
                     <option value="wheel">Sistema de roda</option>
                     <option value="random">Geração aleatória</option>
                     <option value="balanced">Geração equilibrada</option>
@@ -353,10 +432,10 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                     class="mt-2 block w-full rounded-xl border-slate-300 py-2.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                 >
                     <option value="">Todos os status</option>
-                    <option value="draft">Rascunhos</option>
+                    <option value="draft">Rascunho</option>
                     <option value="processing">Em processamento</option>
-                    <option value="completed">Concluídos</option>
-                    <option value="failed">Falhos</option>
+                    <option value="completed">Concluído</option>
+                    <option value="failed">Falhou</option>
                 </select>
             </div>
 
@@ -380,14 +459,11 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                 </h2>
 
                 <p class="mt-1 text-sm text-slate-500">
-                    Acompanhe as configurações salvas para uso futuro.
+                    Gerencie seus planejamentos de jogos.
                 </p>
             </div>
 
-            <div
-                wire:loading
-                class="text-sm font-medium text-indigo-600"
-            >
+            <div wire:loading class="text-sm font-medium text-indigo-600">
                 Atualizando...
             </div>
         </div>
@@ -403,10 +479,6 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
 
                             <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
                                 Grupo-base
-                            </th>
-
-                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                                Configuração
                             </th>
 
                             <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -430,7 +502,7 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                     <tbody class="divide-y divide-slate-100 bg-white">
                         @foreach ($closings as $closing)
                             <tr
-                                wire:key="closing-row-{{ $closing->id }}"
+                                wire:key="closing-{{ $closing->id }}"
                                 class="transition hover:bg-slate-50"
                             >
                                 <td class="whitespace-nowrap px-6 py-4">
@@ -444,68 +516,70 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                 </td>
 
                                 <td class="px-6 py-4">
-                                    <div class="flex max-w-xs flex-wrap gap-1.5">
+                                    <div class="flex max-w-xs flex-wrap gap-1"> {{-- Ajustado aqui --}}
                                         @foreach ($closing->base_numbers ?? [] as $number)
-                                            <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700">
+                                            <span class="inline-flex h-6 w-6 items-center justify-center rounded-md bg-indigo-50 text-xs font-bold text-indigo-700"> {{-- Ajustado aqui --}}
                                                 {{ str_pad($number, 2, '0', STR_PAD_LEFT) }}
                                             </span>
                                         @endforeach
                                     </div>
+                                </td>
 
-                                    <p class="mt-2 text-xs text-slate-500">
-                                        {{ count($closing->base_numbers ?? []) }} dezenas no grupo-base
-                                    </p>
+                                <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
+                                    {{ $this->methodLabel($closing->method) }}
                                 </td>
 
                                 <td class="whitespace-nowrap px-6 py-4">
-                                    <div class="text-sm font-semibold text-slate-700">
-                                        {{ $closing->bet_size }} dezenas por aposta
-                                    </div>
-
-                                    <div class="mt-1 text-xs text-slate-500">
-                                        {{ $closing->planned_bets ?: 'Não informado' }} apostas planejadas
-                                    </div>
-                                </td>
-
-                                <td class="whitespace-nowrap px-6 py-4">
-                                    <span class="text-sm font-medium text-slate-700">
-                                        {{ $this->methodLabel($closing->method) }}
+                                    <span @class([
+                                        'rounded-full px-2.5 py-1 text-xs font-semibold',
+                                        match ($closing->status) {
+                                            'draft' => 'bg-amber-50 text-amber-700',
+                                            'processing' => 'bg-sky-50 text-sky-700',
+                                            'completed' => 'bg-emerald-50 text-emerald-700',
+                                            'failed' => 'bg-rose-50 text-rose-700',
+                                            default => 'bg-slate-100 text-slate-700',
+                                        },
+                                    ])>
+                                        {{ $this->statusLabel($closing->status) }}
                                     </span>
-                                </td>
-
-                                <td class="whitespace-nowrap px-6 py-4">
-                                    @if ($closing->status === 'draft')
-                                        <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
-                                            Rascunho
-                                        </span>
-                                    @elseif ($closing->status === 'processing')
-                                        <span class="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
-                                            Em processamento
-                                        </span>
-                                    @elseif ($closing->status === 'completed')
-                                        <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                                            Concluído
-                                        </span>
-                                    @else
-                                        <span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">
-                                            {{ $this->statusLabel($closing->status) }}
-                                        </span>
-                                    @endif
                                 </td>
 
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
                                     {{ $closing->created_at?->format('d/m/Y H:i') }}
                                 </td>
 
-                                <td class="whitespace-nowrap px-6 py-4 text-right">
-                                    @if ($closing->status === 'draft' && $closing->method === 'integral')
-                                        <button
-                                            type="button"
-                                            wire:click="generate({{ $closing->id }})"
-                                            wire:confirm="Tem certeza que deseja gerar as apostas deste fechamento?"
-                                            wire:loading.attr="disabled"
-                                            wire:target="generate({{ $closing->id }})"
-                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                <td class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
+                                    <div class="flex justify-end gap-2">
+                                        @if ($this->canGenerate($closing))
+                                            <button
+                                                type="button"
+                                                wire:click="generate({{ $closing->id }})"
+                                                wire:confirm="Tem certeza que deseja gerar as apostas deste fechamento?"
+                                                wire:loading.attr="disabled"
+                                                wire:target="generate({{ $closing->id }})"
+                                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                <svg
+                                                    class="h-4 w-4"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    viewBox="0 0 24 24"
+                                                >
+                                                    <path
+                                                        stroke-linecap="round"
+                                                        stroke-linejoin="round"
+                                                        stroke-width="2"
+                                                        d="M13 10V3L4 14h7v7l9-11h-7z"
+                                                    />
+                                                </svg>
+
+                                                Gerar apostas
+                                            </button>
+                                        @endif
+
+                                        <a
+                                            href="{{ route('closings.show', $closing) }}"
+                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
                                         >
                                             <svg
                                                 class="h-4 w-4"
@@ -517,63 +591,42 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                                     stroke-linecap="round"
                                                     stroke-linejoin="round"
                                                     stroke-width="2"
-                                                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                                />
+
+                                                <path
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    stroke-width="2"
+                                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
                                                 />
                                             </svg>
 
-                                            Gerar apostas
-                                        </button>
-                                    @endif
-<a
-    href="{{ route('closings.show', $closing) }}"
-    class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
->
-    <svg
-        class="h-4 w-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-    >
-        <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-        />
+                                            Visualizar
+                                        </a>
 
-        <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-        />
-    </svg>
-
-    Visualizar
-</a>
-                                    <button
-                                        type="button"
-                                        wire:click="delete({{ $closing->id }})"
-                                        wire:confirm="Tem certeza que deseja excluir este fechamento?"
-                                        wire:loading.attr="disabled"
-                                        class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        <svg
-                                            class="h-4 w-4"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            viewBox="0 0 24 24"
+                                        <button
+                                            type="button"
+                                            wire:click="confirmClosingDeletion({{ $closing->id }})"
+                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
                                         >
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                stroke-width="2"
-                                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
-                                            />
-                                        </svg>
+                                            <svg
+                                                class="h-4 w-4"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                viewBox="0 0 24 24"
+                                            >
+                                                <path
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    stroke-width="2"
+                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
+                                                />
+                                            </svg>
 
-                                        Excluir
-                                    </button>
+                                            Excluir
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach
@@ -581,10 +634,11 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                 </table>
             </div>
 
-            <div class="divide-y divide-slate-100 md:hidden">
+            {{-- Mobile --}}
+            <div class="grid divide-y divide-slate-100 md:hidden">
                 @foreach ($closings as $closing)
                     <article
-                        wire:key="closing-card-{{ $closing->id }}"
+                        wire:key="closing-mobile-{{ $closing->id }}"
                         class="space-y-4 p-5"
                     >
                         <div class="flex items-start justify-between gap-4">
@@ -598,23 +652,18 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                 </p>
                             </div>
 
-                            @if ($closing->status === 'draft')
-                                <span class="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
-                                    Rascunho
-                                </span>
-                            @elseif ($closing->status === 'processing')
-                                <span class="shrink-0 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
-                                    Em processamento
-                                </span>
-                            @elseif ($closing->status === 'completed')
-                                <span class="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                                    Concluído
-                                </span>
-                            @else
-                                <span class="shrink-0 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">
-                                    {{ $this->statusLabel($closing->status) }}
-                                </span>
-                            @endif
+                            <span @class([
+                                'shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold',
+                                match ($closing->status) {
+                                    'draft' => 'bg-amber-50 text-amber-700',
+                                    'processing' => 'bg-sky-50 text-sky-700',
+                                    'completed' => 'bg-emerald-50 text-emerald-700',
+                                    'failed' => 'bg-rose-50 text-rose-700',
+                                    default => 'bg-slate-100 text-slate-700',
+                                },
+                            ])>
+                                {{ $this->statusLabel($closing->status) }}
+                            </span>
                         </div>
 
                         <div>
@@ -622,59 +671,26 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                 Grupo-base
                             </p>
 
-                            <div class="flex flex-wrap gap-1.5">
+                            <div class="flex flex-wrap gap-1"> {{-- Ajustado aqui --}}
                                 @foreach ($closing->base_numbers ?? [] as $number)
-                                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700">
+                                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700"> {{-- Ajustado aqui --}}
                                         {{ str_pad($number, 2, '0', STR_PAD_LEFT) }}
                                     </span>
                                 @endforeach
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
-                            <div>
-                                <p class="text-xs text-slate-500">
-                                    Método
-                                </p>
-
-                                <p class="mt-1 text-sm font-semibold text-slate-700">
+                        <div class="flex items-center justify-between border-t border-slate-100 pt-4">
+                            <div class="text-sm text-slate-500">
+                                Método:
+                                <span class="font-semibold text-slate-700">
                                     {{ $this->methodLabel($closing->method) }}
-                                </p>
-                            </div>
-
-                            <div>
-                                <p class="text-xs text-slate-500">
-                                    Apostas planejadas
-                                </p>
-
-                                <p class="mt-1 text-sm font-semibold text-slate-700">
-                                    {{ $closing->planned_bets ?: 'Não informado' }}
-                                </p>
-                            </div>
-
-                            <div>
-                                <p class="text-xs text-slate-500">
-                                    Tamanho da aposta
-                                </p>
-
-                                <p class="mt-1 text-sm font-semibold text-slate-700">
-                                    {{ $closing->bet_size }} dezenas
-                                </p>
-                            </div>
-
-                            <div>
-                                <p class="text-xs text-slate-500">
-                                    Garantia
-                                </p>
-
-                                <p class="mt-1 text-sm font-semibold text-slate-700">
-                                    {{ $closing->guarantee ? $closing->guarantee . ' acertos' : 'Não informada' }}
-                                </p>
+                                </span>
                             </div>
                         </div>
 
                         <div class="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
-                            @if ($closing->status === 'draft' && $closing->method === 'integral')
+                            @if ($this->canGenerate($closing))
                                 <button
                                     type="button"
                                     wire:click="generate({{ $closing->id }})"
@@ -701,38 +717,36 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                 </button>
                             @endif
                             <a
-    href="{{ route('closings.show', $closing) }}"
-    class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
->
-    <svg
-        class="h-4 w-4"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-    >
-        <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-        />
+                                href="{{ route('closings.show', $closing) }}"
+                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
+                            >
+                                <svg
+                                    class="h-4 w-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
 
-        <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-        />
-    </svg>
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                                    />
+                                </svg>
 
-    Visualizar
-</a>
+                                Visualizar
+                            </a>
                             <button
                                 type="button"
-                                wire:click="delete({{ $closing->id }})"
-                                wire:confirm="Tem certeza que deseja excluir este fechamento?"
-                                wire:loading.attr="disabled"
-                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                wire:click="confirmClosingDeletion({{ $closing->id }})"
+                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
                             >
                                 <svg
                                     class="h-4 w-4"
@@ -838,7 +852,7 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     stroke-width="2"
-                    d="M12 9v3m0 4h.01M10.3 3.7L2.8 17a2 2 0 001.7 3h15a2 2 0 001.7 0h-15a2 2 0 01-1.7-3l7.5-13.3a2 2 0 013.4 0z"
+                    d="M12 9v3m0 4h.01M10.3 3.7L2.8 17a2 2 0 001.7 3h15a2 2 0 001.7 3h-15a2 2 0 01-1.7-3l7.5-13.3a2 2 0 013.4 0z"
                 />
             </svg>
 
@@ -848,4 +862,104 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
             </p>
         </div>
     </section>
+
+    @if ($confirmingClosingDeletion)
+        <div
+            class="fixed inset-0 z-50 flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="closing-deletion-title"
+        >
+            <div
+                class="fixed inset-0 bg-slate-900/50"
+                wire:click="cancelClosingDeletion"
+            ></div>
+
+            <div class="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+                        <svg
+                            class="h-5 w-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
+                            />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <h3
+                            id="closing-deletion-title"
+                            class="text-base font-bold text-slate-900"
+                        >
+                            Excluir fechamento
+                        </h3>
+
+                        <p class="mt-1 text-sm leading-6 text-slate-500">
+                            Tem certeza que deseja excluir
+                            <strong class="text-slate-700">{{ $closingToDeleteName }}</strong>?
+                            Esta ação não pode ser desfeita.
+                        </p>
+                    </div>
+                </div>
+
+                @if ($closingToDeleteBetsCount > 0)
+                    <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                        <p class="text-sm leading-6 text-amber-800">
+                            Este fechamento possui
+                            <strong>{{ $closingToDeleteBetsCount }}</strong>
+                            {{ $closingToDeleteBetsCount === 1 ? 'aposta vinculada' : 'apostas vinculadas' }}.
+                            Escolha se deseja excluí-las também ou apenas desvinculá-las deste fechamento.
+                        </p>
+                    </div>
+                @endif
+
+                <div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button
+                        type="button"
+                        wire:click="cancelClosingDeletion"
+                        wire:loading.attr="disabled"
+                        class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        Cancelar
+                    </button>
+
+                    @if ($closingToDeleteBetsCount > 0)
+                        <button
+                            type="button"
+                            wire:click="deleteClosing(false)"
+                            wire:loading.attr="disabled"
+                            class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            Excluir apenas o fechamento
+                        </button>
+
+                        <button
+                            type="button"
+                            wire:click="deleteClosing(true)"
+                            wire:loading.attr="disabled"
+                            class="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-600/20 transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            Excluir fechamento e apostas
+                        </button>
+                    @else
+                        <button
+                            type="button"
+                            wire:click="deleteClosing(false)"
+                            wire:loading.attr="disabled"
+                            class="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-600/20 transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            Excluir fechamento
+                        </button>
+                    @endif
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

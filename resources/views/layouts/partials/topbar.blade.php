@@ -54,11 +54,11 @@
                     {{ strtoupper(substr(auth()->user()->name ?? 'U', 0, 1)) }}
                 </div>
 
-                <form method="POST" action="{{ route('logout') }}">
-                    @csrf
-
+                <div x-data>
                     <button
-                        type="submit"
+                        type="button"
+                        @click="$dispatch('open-logout')"
+                        onclick="event.preventDefault(); document.getElementById('logout-form').submit();"
                         class="hidden rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 sm:block"
                         title="Sair"
                     >
@@ -66,7 +66,10 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h5a2 2 0 012 2v1" />
                         </svg>
                     </button>
-                </form>
+                    <form id="logout-form" action="{{ route('logout') }}" method="POST" class="hidden">
+                        @csrf
+                    </form>
+                </div>
             </div>
         </div>
     </div>
