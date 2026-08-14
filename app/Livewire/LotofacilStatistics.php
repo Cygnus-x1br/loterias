@@ -8,7 +8,7 @@ use Carbon\Carbon; // Certifique-se de que o modelo está importado
 use Illuminate\Support\Facades\Cache;
 use Livewire\Component;
 
- // Certifique-se de que Carbon está importado
+// Certifique-se de que Carbon está importado
 
 class LotofacilStatistics extends Component
 {

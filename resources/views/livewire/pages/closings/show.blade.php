@@ -291,8 +291,16 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
      */
     public function with(): array
     {
+        $bets = $this->closing->bets()->paginate(10);
+        $scoringService = app(\App\Services\BetScoringService::class);
+        $bets->getCollection()->transform(function ($bet) use ($scoringService) {
+            $numbers = is_array($bet->numbers) ? $bet->numbers : (json_decode((string) $bet->numbers, true) ?? []);
+            $bet->scoreData = $scoringService->calculateScore($numbers);
+            return $bet;
+        });
+
         return [
-            'bets' => $this->closing->bets()->paginate(10),
+            'bets' => $bets,
         ];
     }
 };
@@ -667,6 +675,15 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                                     </span>
                                                 @endforeach
                                             </div>
+                                            
+                                            @if(isset($bet->scoreData))
+                                                <div class="mt-2 text-[10px] font-bold text-{{ $bet->scoreData['color'] }}-700 flex items-center gap-1">
+                                                    <span class="bg-{{ $bet->scoreData['color'] }}-50 px-2 py-0.5 rounded-full border border-{{ $bet->scoreData['color'] }}-200">
+                                                        Score: {{ $bet->scoreData['total_score'] }}
+                                                        ({{ $bet->scoreData['classification'] }})
+                                                    </span>
+                                                </div>
+                                            @endif
                                         </td>
 
                                         <td class="whitespace-nowrap px-5 py-4 sm:px-6">

@@ -144,7 +144,13 @@
                 </p>
 
                 <div class="space-y-1">
-                    <a href="#" class="sidebar-link">
+                    <a
+                        href="{{ route('settings.index') }}"
+                        @class([
+                            'sidebar-link',
+                            'bg-indigo-50 !text-indigo-700 font-semibold' => request()->routeIs('settings.*'),
+                        ])
+                    >
                         <span>⚙</span>
                         Configurações
                     </a>

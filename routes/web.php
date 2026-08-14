@@ -55,4 +55,12 @@ Route::middleware('auth')
             ->name('edit');
     });
 
+Route::middleware('auth')
+    ->prefix('configuracoes')
+    ->name('settings.')
+    ->group(function () {
+        Volt::route('/', 'pages.settings.index')
+            ->name('index');
+    });
+
 require __DIR__.'/auth.php';

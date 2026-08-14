@@ -96,6 +96,13 @@ new #[Layout('layouts.app', ['title' => 'Sorteios da Lotofácil'])] class extend
 
         $results = $query->orderByDesc('contest_number')->paginate(15);
 
+        $scoringService = app(\App\Services\BetScoringService::class);
+        $results->getCollection()->transform(function ($result) use ($scoringService) {
+            $numbers = is_array($result->drawn_numbers) ? $result->drawn_numbers : (json_decode((string) $result->drawn_numbers, true) ?? []);
+            $result->scoreData = $scoringService->calculateScore($numbers);
+            return $result;
+        });
+
         return [
             'results' => $results,
             'totalCount' => HistoricalResult::count(),
@@ -277,6 +284,14 @@ new #[Layout('layouts.app', ['title' => 'Sorteios da Lotofácil'])] class extend
                                             </span>
                                         @endforeach
                                     </div>
+                                    @if(isset($item->scoreData))
+                                        <div class="mt-2 text-[10px] font-bold text-{{ $item->scoreData['color'] }}-700 flex items-center gap-1">
+                                            <span class="bg-{{ $item->scoreData['color'] }}-50 px-2 py-0.5 rounded-full border border-{{ $item->scoreData['color'] }}-200">
+                                                Score: {{ $item->scoreData['total_score'] }}
+                                                ({{ $item->scoreData['classification'] }})
+                                            </span>
+                                        </div>
+                                    @endif
                                 </td>
 
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">
@@ -369,6 +384,15 @@ new #[Layout('layouts.app', ['title' => 'Sorteios da Lotofácil'])] class extend
                                     </span>
                                 @endforeach
                             </div>
+                            
+                            @if(isset($item->scoreData))
+                                <div class="mt-2 text-[10px] font-bold text-{{ $item->scoreData['color'] }}-700 flex items-center gap-1">
+                                    <span class="bg-{{ $item->scoreData['color'] }}-50 px-2 py-0.5 rounded-full border border-{{ $item->scoreData['color'] }}-200">
+                                        Score: {{ $item->scoreData['total_score'] }}
+                                        ({{ $item->scoreData['classification'] }})
+                                    </span>
+                                </div>
+                            @endif
                         </div>
 
                         @if ($item->winners_15_hits !== null)
