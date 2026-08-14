@@ -24,8 +24,7 @@ class IntegralBetGenerator implements BetGeneratorInterface
     }
 
     /**
-     * @param array<int, int> $numbers
-     *
+     * @param  array<int, int>  $numbers
      * @return \Generator<int, array<int, int>>
      */
     protected function combinations(

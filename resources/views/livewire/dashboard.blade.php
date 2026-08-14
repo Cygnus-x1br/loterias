@@ -17,6 +17,16 @@
 
         <div class="flex flex-col gap-3 sm:flex-row">
             <a
+                href="{{ route('results.create') }}"
+                class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+            >
+                <svg class="h-4 w-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Cadastrar sorteio
+            </a>
+
+            <a
                 href="{{ route('bets.create') }}"
                 class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
             >
@@ -92,6 +102,20 @@
         </div>
     </section>
 
+    {{-- Nova seção para as estatísticas da Lotofácil --}}
+    <section>
+        <div class="mb-4">
+            <h2 class="text-base font-bold text-slate-900">
+                Estatísticas da Lotofácil
+            </h2>
+            <p class="mt-1 text-sm text-slate-500">
+                Análise dos resultados históricos para auxiliar na criação de novas apostas.
+            </p>
+        </div>
+        <livewire:lotofacil-statistics />
+    </section>
+    {{-- Fim da nova seção --}}
+
     <section>
         <div class="mb-4">
             <h2 class="text-base font-bold text-slate-900">
@@ -103,7 +127,30 @@
             </p>
         </div>
 
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <a
+                href="{{ route('results.index') }}"
+                class="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
+            >
+                <div class="flex items-center justify-between">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-xl text-indigo-600">
+                        ◷
+                    </div>
+
+                    <span class="text-slate-300 transition group-hover:translate-x-1 group-hover:text-indigo-500">
+                        →
+                    </span>
+                </div>
+
+                <h3 class="mt-4 text-sm font-bold text-slate-800">
+                    Resultados anteriores
+                </h3>
+
+                <p class="mt-1 text-sm leading-5 text-slate-500">
+                    Consulte o histórico de sorteios e dezenas sorteadas.
+                </p>
+            </a>
+
             <a
                 href="{{ route('closings.create') }}"
                 class="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"

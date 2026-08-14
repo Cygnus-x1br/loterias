@@ -65,7 +65,7 @@ class WheelBetGenerator implements BetGeneratorInterface
         // Validação da soma dos tamanhos
         if (count($fixedNumbers) + $wheelSize !== $betSize) {
             throw new InvalidArgumentException(
-                "A soma das dezenas fixas (".count($fixedNumbers).") e o tamanho da roda ({$wheelSize}) deve ser igual ao tamanho da aposta ({$betSize})."
+                'A soma das dezenas fixas ('.count($fixedNumbers).") e o tamanho da roda ({$wheelSize}) deve ser igual ao tamanho da aposta ({$betSize})."
             );
         }
     }
@@ -74,6 +74,7 @@ class WheelBetGenerator implements BetGeneratorInterface
      * Gera apostas usando o sistema de roda.
      *
      * @return \Generator<int, array<int>>
+     *
      * @throws LogicException
      */
     public function generate(Closing $closing): \Generator
@@ -117,7 +118,7 @@ class WheelBetGenerator implements BetGeneratorInterface
     /**
      * Gera combinações de forma incremental.
      *
-     * @param array<int> $numbers
+     * @param  array<int>  $numbers
      * @return \Generator<int, array<int>>
      */
     protected function combinations(
@@ -128,6 +129,7 @@ class WheelBetGenerator implements BetGeneratorInterface
     ): \Generator {
         if (count($current) === $size) {
             yield array_values($current);
+
             return;
         }
 

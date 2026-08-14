@@ -86,7 +86,13 @@
                         Fechamentos
                     </a>
 
-                    <a href="#" class="sidebar-link">
+                    <a
+                        href="{{ route('lotofacil.analysis') }}"
+                        @class([
+                            'sidebar-link',
+                            'bg-indigo-50 !text-indigo-700 font-semibold' => request()->routeIs('lotofacil.analysis'),
+                        ])
+                    >
                         <span>∑</span>
                         Cálculos matemáticos
                     </a>
@@ -114,9 +120,15 @@
                 </p>
 
                 <div class="space-y-1">
-                    <a href="#" class="sidebar-link">
+                    <a
+                        href="{{ route('results.index') }}"
+                        @class([
+                            'sidebar-link',
+                            'bg-indigo-50 !text-indigo-700 font-semibold' => request()->routeIs('results.*'),
+                        ])
+                    >
                         <span>◷</span>
-                        Histórico
+                        Consultar resultados anteriores
                     </a>
 
                     <a href="#" class="sidebar-link">

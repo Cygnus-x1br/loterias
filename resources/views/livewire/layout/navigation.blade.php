@@ -33,6 +33,18 @@ new class extends Component
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')" wire:navigate>
                         {{ __('Dashboard') }}
                     </x-nav-link>
+
+                    <x-nav-link :href="route('results.index')" :active="request()->routeIs('results.*')" wire:navigate>
+                        {{ __('Sorteios') }}
+                    </x-nav-link>
+
+                    <x-nav-link :href="route('bets.index')" :active="request()->routeIs('bets.*')" wire:navigate>
+                        {{ __('Apostas') }}
+                    </x-nav-link>
+
+                    <x-nav-link :href="route('closings.index')" :active="request()->routeIs('closings.*')" wire:navigate>
+                        {{ __('Fechamentos') }}
+                    </x-nav-link>
                 </div>
             </div>
 
@@ -83,6 +95,18 @@ new class extends Component
         <div class="pt-2 pb-3 space-y-1">
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')" wire:navigate>
                 {{ __('Dashboard') }}
+            </x-responsive-nav-link>
+
+            <x-responsive-nav-link :href="route('results.index')" :active="request()->routeIs('results.*')" wire:navigate>
+                {{ __('Sorteios') }}
+            </x-responsive-nav-link>
+
+            <x-responsive-nav-link :href="route('bets.index')" :active="request()->routeIs('bets.*')" wire:navigate>
+                {{ __('Apostas') }}
+            </x-responsive-nav-link>
+
+            <x-responsive-nav-link :href="route('closings.index')" :active="request()->routeIs('closings.*')" wire:navigate>
+                {{ __('Fechamentos') }}
             </x-responsive-nav-link>
         </div>
 

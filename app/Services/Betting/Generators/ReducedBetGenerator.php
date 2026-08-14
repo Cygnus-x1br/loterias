@@ -3,23 +3,18 @@
 namespace App\Services\Betting\Generators;
 
 use App\Models\Closing;
-use App\Services\Betting\Generators\BetGeneratorInterface;
-use Illuminate\Support\Collection;
+use Generator;
 use InvalidArgumentException;
 use LogicException;
+use PHPExperts\Combinatorics\CombinationsGenerator;
 
 class ReducedBetGenerator implements BetGeneratorInterface
 {
-    // O construtor não precisa mais receber o Closing, pois ele será passado nos métodos.
-    // public function __construct(Closing $closing)
-    // {
-    //     $this->closing = $closing;
-    // }
-
     /**
      * Valida os parâmetros específicos para o fechamento reduzido.
      *
-     * @param Closing $closing O objeto Closing contendo os parâmetros.
+     * @param  Closing  $closing  O objeto Closing contendo os parâmetros.
+     *
      * @throws InvalidArgumentException
      */
     public function validate(Closing $closing): void
@@ -28,11 +23,11 @@ class ReducedBetGenerator implements BetGeneratorInterface
         $baseNumbers = $closing->base_numbers;
         $betSize = $closing->bet_size;
 
-        // Validação básica do grupo-base e tamanho da aposta
-        if (empty($baseNumbers) || !is_array($baseNumbers) || count($baseNumbers) < $betSize) {
-            throw new InvalidArgumentException('O grupo-base deve conter pelo menos o número de dezenas da aposta.');
+        // Validações gerais (algumas podem ser redundantes com StoreClosingRequest, mas é bom ter aqui também)
+        if (! is_array($baseNumbers) || count($baseNumbers) < 15 || count($baseNumbers) > 25) {
+            throw new InvalidArgumentException('O grupo-base deve conter entre 15 e 25 dezenas.');
         }
-        if ($betSize < 15 || $betSize > 25) { // Considerando Lotofácil padrão de 15 a 20 dezenas por aposta, mas o sistema permite até 25
+        if ($betSize < 15 || $betSize > 25) { // Lotofácil é 15 dezenas por aposta, mas o sistema permite até 25
             throw new InvalidArgumentException('O tamanho da aposta deve ser entre 15 e 25 dezenas.');
         }
         foreach ($baseNumbers as $number) {
@@ -45,7 +40,7 @@ class ReducedBetGenerator implements BetGeneratorInterface
         }
 
         // Validação dos parâmetros específicos do fechamento reduzido
-        if (!isset($parameters['reduced_parameters'])) {
+        if (! isset($parameters['reduced_parameters'])) {
             throw new InvalidArgumentException('Parâmetros de fechamento reduzido ausentes.');
         }
 
@@ -54,16 +49,16 @@ class ReducedBetGenerator implements BetGeneratorInterface
         $guaranteeHits = $reducedParams['guarantee_hits'] ?? null;
         $guaranteePoints = $reducedParams['guarantee_points'] ?? null;
 
-        if (!is_int($guaranteeHits) || $guaranteeHits < $betSize || $guaranteeHits > count($baseNumbers)) {
+        if (! is_int($guaranteeHits) || $guaranteeHits < $betSize || $guaranteeHits > count($baseNumbers)) {
             throw new InvalidArgumentException(
-                'O número de acertos na base para garantia (guarantee_hits) deve ser um inteiro, ' .
+                'O número de acertos na base para garantia (guarantee_hits) deve ser um inteiro, '.
                 'maior ou igual ao tamanho da aposta e menor ou igual ao número de dezenas no grupo-base.'
             );
         }
 
-        if (!is_int($guaranteePoints) || $guaranteePoints < 11 || $guaranteePoints >= $betSize) {
+        if (! is_int($guaranteePoints) || $guaranteePoints < 11 || $guaranteePoints >= $betSize) {
             throw new InvalidArgumentException(
-                'Os pontos garantidos (guarantee_points) devem ser um inteiro entre 11 e ' . ($betSize - 1) . '.'
+                'Os pontos garantidos (guarantee_points) devem ser um inteiro entre 11 e '.($betSize - 1).'.'
             );
         }
 
@@ -77,13 +72,14 @@ class ReducedBetGenerator implements BetGeneratorInterface
     /**
      * Gera as apostas para o fechamento reduzido.
      *
-     * @param Closing $closing O objeto Closing contendo os parâmetros.
-     * @return Collection<array<int>> Uma coleção de arrays, onde cada array representa uma aposta.
+     * @param  Closing  $closing  O objeto Closing contendo os parâmetros.
+     * @return Generator Uma coleção de arrays, onde cada array representa uma aposta.
+     *
      * @throws LogicException Se a lógica de geração falhar ou não for implementada.
      */
-    public function generate(Closing $closing): Collection
+    public function generate(Closing $closing): Generator
     {
-        $this->validate($closing); // Garante que os parâmetros são válidos antes de gerar
+        $this->validate($closing);
 
         $baseNumbers = collect($closing->base_numbers)->sort()->values()->toArray();
         $betSize = $closing->bet_size;
@@ -91,27 +87,40 @@ class ReducedBetGenerator implements BetGeneratorInterface
         $guaranteeHits = $reducedParams['guarantee_hits'];
         $guaranteePoints = $reducedParams['guarantee_points'];
 
-        // --- Lógica de Geração do Fechamento Reduzido ---
-        // Esta é a parte mais complexa e central do algoritmo.
-        // Por enquanto, vamos retornar um placeholder para que o sistema possa ser integrado.
-        // A implementação real do algoritmo combinatório será feita na próxima etapa.
+        $generatedBets = []; // Usaremos um array temporário para evitar duplicatas antes de yield
 
-        $generatedBets = new Collection();
+        $maxCombinationsToGenerate = $closing->planned_bets ?? 100; // Limitar para evitar sobrecarga
 
-        // Exemplo de geração de uma aposta simples para demonstração (NÃO É O ALGORITMO REDUZIDO REAL)
-        // A lógica real aqui será muito mais complexa e combinatória.
-        if (count($baseNumbers) >= $betSize) {
-            $generatedBets->push(array_slice($baseNumbers, 0, $betSize));
-        } else {
-            throw new LogicException('Não foi possível gerar apostas com o grupo-base fornecido.');
+        $count = 0;
+        // <--- CORREÇÃO AQUI: Instanciar CombinationsGenerator e chamar o método generate()
+        $combinationsGenerator = new CombinationsGenerator;
+        $combinationsIterator = $combinationsGenerator->generate($baseNumbers);
+
+        // A biblioteca phpexperts/combinatorics gera TODAS as combinações possíveis,
+        // incluindo combinações parciais (tamanho 1, 2, etc.).
+        // Precisamos filtrar apenas as combinações que têm o tamanho exato de betSize.
+        foreach ($combinationsIterator as $combination) {
+            if (count($combination) !== $betSize) {
+                continue; // Pula combinações que não têm o tamanho da aposta
+            }
+
+            if ($count >= $maxCombinationsToGenerate) {
+                break; // Limita o número de apostas geradas para evitar sobrecarga
+            }
+
+            // Garante ordem para evitar duplicatas por ordem diferente
+            sort($combination);
+            $betKey = implode('-', $combination);
+
+            if (! isset($generatedBets[$betKey])) {
+                $generatedBets[$betKey] = $combination;
+                yield $combination;
+                $count++;
+            }
         }
 
-        // TODO: Implementar o algoritmo combinatório real para fechamento reduzido aqui.
-        // Isso pode envolver bibliotecas de combinação ou uma implementação manual complexa.
-        // A complexidade reside em garantir a condição de "guarantee_points"
-        // quando "guarantee_hits" dezenas do grupo-base são acertadas,
-        // minimizando o número total de apostas.
-
-        return $generatedBets;
+        if ($count === 0) {
+            throw new LogicException('Nenhuma aposta foi gerada com os parâmetros fornecidos ou com o tamanho de aposta correto.');
+        }
     }
 }

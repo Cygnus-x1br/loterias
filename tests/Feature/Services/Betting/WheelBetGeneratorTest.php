@@ -6,7 +6,6 @@ use App\Models\Bet;
 use App\Models\Closing;
 use App\Models\User;
 use App\Services\Betting\ClosingGenerator;
-use App\Services\Betting\Generators\WheelBetGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use InvalidArgumentException;
 use LogicException;
@@ -286,5 +285,4 @@ class WheelBetGeneratorTest extends TestCase
             $this->assertDatabaseCount('bets', 0); // <--- ALTERADO AQUI
         }
     }
-
 }

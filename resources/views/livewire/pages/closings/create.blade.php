@@ -1,15 +1,18 @@
 <?php
 
 use App\Models\Closing;
+use App\Services\LotofacilStatisticsService;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Component
 {
     public string $name = '';
 
-    public string $method = 'reduced'; // Valor inicial pode ser 'wheel' se quiser testar
+    public string $method = 'reduced'; // Valor inicial pode ser 'reduced' para testar
 
     public array $base_numbers = [];
 
@@ -17,7 +20,36 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
     public int $planned_bets = 10;
 
-    public string $guarantee = '';
+    public function mount(): void
+    {
+        $numbersQuery = request()->query('numbers');
+        if ($numbersQuery && is_string($numbersQuery)) {
+            $parsedNumbers = array_filter(array_map('intval', explode(',', $numbersQuery)), fn ($n) => $n >= 1 && $n <= 25);
+            if (! empty($parsedNumbers)) {
+                $this->setBaseNumbersFromResult($parsedNumbers);
+            }
+        }
+    }
+
+    #[On('numbersSelected')]
+    public function setBaseNumbersFromResult(array $numbers): void
+    {
+        $validNumbers = array_values(array_unique(array_filter(array_map('intval', $numbers), fn ($n) => $n >= 1 && $n <= 25)));
+        sort($validNumbers);
+        $this->base_numbers = $validNumbers;
+        $this->resetValidation('base_numbers');
+    }
+
+    public function loadLastResultNumbers(): void
+    {
+        $service = app(LotofacilStatisticsService::class);
+        $lastContestData = $service->getLastContestWithSum();
+        if ($lastContestData && isset($lastContestData['result']['drawn_numbers'])) {
+            $this->setBaseNumbersFromResult($lastContestData['result']['drawn_numbers']);
+        }
+    }
+
+    public string $guarantee = ''; // Este campo 'guarantee' é genérico, não o do reduced_parameters
 
     public string $budget = '';
 
@@ -39,6 +71,10 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
     public array $fixed_numbers = [];
     public array $variable_numbers = [];
     public ?int $wheel_size = null;
+
+    // NOVOS PARÂMETROS PARA FECHAMENTO REDUZIDO
+    public ?int $guarantee_hits = null;    // Acertos na base para garantia
+    public ?int $guarantee_points = null;  // Pontos garantidos
 
     public function rules(): array
     {
@@ -124,6 +160,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 'integer',
                 'distinct',
                 'between:1,25',
+                Rule::in($this->base_numbers), // Dezenas fixas devem estar no grupo-base
             ];
             $rules['variable_numbers'] = [
                 'required',
@@ -136,6 +173,8 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 'integer',
                 'distinct',
                 'between:1,25',
+                Rule::in($this->base_numbers), // Dezenas variáveis devem estar no grupo-base
+                Rule::notIn($this->fixed_numbers), // Não pode estar nas fixas
             ];
             $rules['wheel_size'] = [
                 'required',
@@ -143,6 +182,21 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 'min:1',
                 'max:' . count($this->variable_numbers),
                 'size:' . ($this->bet_size - count($this->fixed_numbers)), // fixed + wheel_size = bet_size
+            ];
+        }
+
+        // NOVAS REGRAS CONDICIONAIS PARA O MÉTODO 'REDUCED'
+        if ($this->method === 'reduced') {
+            $rules['guarantee_hits'] = [
+                'required',
+                'integer',
+                'min:' . $this->bet_size, // Deve ser pelo menos o tamanho da aposta
+                'max:' . count($this->base_numbers), // Não pode exceder o grupo-base
+            ];
+            $rules['guarantee_points'] = [
+                'required',
+                'integer',
+                'between:11,' . ($this->bet_size - 1), // Pontos garantidos entre 11 e (tamanho da aposta - 1)
             ];
         }
 
@@ -209,6 +263,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             'fixed_numbers.*.required' => 'A dezena fixa não pode ser vazia.',
             'fixed_numbers.*.distinct' => 'Não é permitido repetir dezenas fixas.',
             'fixed_numbers.*.between' => 'As dezenas fixas devem estar entre 1 e 25.',
+            'fixed_numbers.*.in' => 'A dezena fixa :input não está no grupo-base.',
 
             'variable_numbers.required' => 'Selecione as dezenas variáveis.',
             'variable_numbers.array' => 'As dezenas variáveis devem ser uma lista.',
@@ -217,12 +272,24 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             'variable_numbers.*.required' => 'A dezena variável não pode ser vazia.',
             'variable_numbers.*.distinct' => 'Não é permitido repetir dezenas variáveis.',
             'variable_numbers.*.between' => 'As dezenas variáveis devem estar entre 1 e 25.',
+            'variable_numbers.*.in' => 'A dezena variável :input não está no grupo-base.',
+            'variable_numbers.*.not_in' => 'A dezena variável :input também está nas dezenas fixas.',
 
             'wheel_size.required' => 'Informe o tamanho da roda.',
             'wheel_size.integer' => 'O tamanho da roda deve ser um número inteiro.',
             'wheel_size.min' => 'O tamanho da roda deve ser de pelo menos 1.',
             'wheel_size.max' => 'O tamanho da roda não pode exceder o número de dezenas variáveis.',
             'wheel_size.size' => 'A soma das dezenas fixas e o tamanho da roda deve ser igual ao tamanho da aposta.',
+
+            // NOVAS MENSAGENS PARA O MÉTODO 'REDUCED'
+            'guarantee_hits.required' => 'Informe o número de acertos na base para garantia.',
+            'guarantee_hits.integer' => 'O número de acertos na base para garantia deve ser um número inteiro.',
+            'guarantee_hits.min' => 'O número de acertos na base para garantia deve ser pelo menos :min.',
+            'guarantee_hits.max' => 'O número de acertos na base para garantia não pode exceder :max.',
+
+            'guarantee_points.required' => 'Informe os pontos garantidos.',
+            'guarantee_points.integer' => 'Os pontos garantidos devem ser um número inteiro.',
+            'guarantee_points.between' => 'Os pontos garantidos devem estar entre :min e :max.',
         ];
     }
 
@@ -313,11 +380,15 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         $this->fixed_numbers = [];
         $this->variable_numbers = [];
         $this->wheel_size = null;
+        $this->guarantee_hits = null; // Limpar também os novos campos
+        $this->guarantee_points = null; // Limpar também os novos campos
 
         $this->resetValidation('base_numbers');
         $this->resetValidation('fixed_numbers');
         $this->resetValidation('variable_numbers');
         $this->resetValidation('wheel_size');
+        $this->resetValidation('guarantee_hits'); // Resetar validação
+        $this->resetValidation('guarantee_points'); // Resetar validação
     }
 
     public function selectRandomNumbers(): void
@@ -334,11 +405,15 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         $this->fixed_numbers = [];
         $this->variable_numbers = [];
         $this->wheel_size = null;
+        $this->guarantee_hits = null; // Limpar também os novos campos
+        $this->guarantee_points = null; // Limpar também os novos campos
 
         $this->resetValidation('base_numbers');
         $this->resetValidation('fixed_numbers');
         $this->resetValidation('variable_numbers');
         $this->resetValidation('wheel_size');
+        $this->resetValidation('guarantee_hits'); // Resetar validação
+        $this->resetValidation('guarantee_points'); // Resetar validação
     }
 
     public function save(): void
@@ -384,6 +459,34 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 }
             }
 
+            // Validações manuais para o método 'reduced'
+            if ($this->method === 'reduced') {
+                if ($this->guarantee_hits !== null && $this->guarantee_points !== null) {
+                    if ($this->guarantee_points >= $this->bet_size) {
+                        $this->addError(
+                            'guarantee_points',
+                            'Os pontos garantidos devem ser menores que o tamanho da aposta.'
+                        );
+                        return;
+                    }
+                    if ($this->guarantee_hits < $this->bet_size) {
+                        $this->addError(
+                            'guarantee_hits',
+                            'O número de acertos na base para garantia deve ser maior ou igual ao tamanho da aposta.'
+                        );
+                        return;
+                    }
+                    if ($this->guarantee_hits > count($this->base_numbers)) {
+                        $this->addError(
+                            'guarantee_hits',
+                            'O número de acertos na base para garantia não pode ser maior que o grupo-base.'
+                        );
+                        return;
+                    }
+                }
+            }
+
+
             $parameters = null;
             if ($this->method === 'balanced') {
                 $parameters = [];
@@ -414,6 +517,17 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                     $parameters['wheel_size'] = (int) $this->wheel_size;
                 }
                 if (empty($parameters)) {
+                    $parameters = null;
+                }
+            } elseif ($this->method === 'reduced') { // NOVO: Lógica para salvar parâmetros do fechamento reduzido
+                $parameters = [];
+                if ($this->guarantee_hits !== null) {
+                    $parameters['reduced_parameters']['guarantee_hits'] = (int) $this->guarantee_hits;
+                }
+                if ($this->guarantee_points !== null) {
+                    $parameters['reduced_parameters']['guarantee_points'] = (int) $this->guarantee_points;
+                }
+                if (empty($parameters['reduced_parameters'])) {
                     $parameters = null;
                 }
             }
@@ -453,60 +567,42 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
 <div class="mx-auto max-w-7xl space-y-6">
     <section class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-            <div class="mb-3 flex items-center gap-2 text-sm text-slate-400">
-                <a
-                    href="{{ route('dashboard') }}"
-                    class="transition hover:text-indigo-600"
-                >
-                    Dashboard
-                </a>
+        <div class="mb-3 flex items-center gap-2 text-sm text-slate-400">
+            <a
+                href="{{ route('dashboard') }}"
+                class="transition hover:text-indigo-600"
+            >
+                Dashboard
+            </a>
 
-                <span>/</span>
+            <span>/</span>
 
-                <a
-                    href="{{ route('closings.index') }}"
-                    class="transition hover:text-indigo-600"
-                >
-                    Fechamentos
-                </a>
+            <a
+                href="{{ route('closings.index') }}"
+                class="transition hover:text-indigo-600"
+            >
+                Fechamentos
+            </a>
 
-                <span>/</span>
+            <span>/</span>
 
-                <span class="font-medium text-slate-700">
-                    Novo fechamento
-                </span>
-            </div>
-
-            <div class="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
-                <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
-                Configuração de fechamento
-            </div>
-
-            <h1 class="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">
+            <span class="font-medium text-slate-700">
                 Novo fechamento
-            </h1>
-
-            <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
-                Defina o grupo-base e os parâmetros que serão utilizados em um futuro fechamento.
-            </p>
+            </span>
         </div>
 
-        <a
-            href="{{ route('closings.index') }}"
-            class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-        >
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M10 19l-7-7m0 0l7-7m-7 7h18"
-                />
-            </svg>
+        <div class="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+            <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
+            Configuração de fechamento
+        </div>
 
-            Voltar para fechamentos
-        </a>
+        <h1 class="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">
+            Novo fechamento
+        </h1>
+
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
+            Defina o grupo-base e os parâmetros que serão utilizados em um futuro fechamento.
+        </p>
     </section>
 
     <div class="grid gap-6 xl:grid-cols-3">
@@ -565,7 +661,19 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 </p>
             @enderror
 
-            <div class="mt-6 flex justify-end">
+            <div class="mt-6 flex flex-wrap justify-end gap-3">
+                <button
+                    type="button"
+                    wire:click="loadLastResultNumbers"
+                    wire:loading.attr="disabled"
+                    class="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Usar último resultado (15 dezenas)
+                </button>
+
                 <button
                     type="button"
                     wire:click="selectRandomNumbers"
@@ -662,7 +770,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                         <option value="random">Geração aleatória</option>
                         <option value="balanced">Geração equilibrada</option>
                         <option value="wheel">Sistema de roda</option>
-                        <option value="reduced">Fechamento reduzido (em breve)</option>
+                        <option value="reduced">Fechamento reduzido</option> {{-- Removido "(em breve)" --}}
                     </select>
 
                     @error('method')
@@ -971,6 +1079,67 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                             >
 
                             @error('wheel_size')
+                                <p class="mt-2 text-sm font-medium text-rose-600">
+                                    {{ $message }}
+                                </p>
+                            @enderror
+                        </div>
+                    </div>
+                @endif
+
+                {{-- NOVOS CAMPOS PARA O MÉTODO REDUCED --}}
+                @if ($method === 'reduced')
+                    <div class="space-y-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+                        <h3 class="text-base font-bold text-indigo-700">
+                            Parâmetros de Fechamento Reduzido
+                        </h3>
+
+                        <div>
+                            <label
+                                for="guarantee_hits"
+                                class="block text-sm font-semibold text-slate-700"
+                            >
+                                Acertos na Base para Garantia
+                            </label>
+                            <p class="mt-1 text-xs text-slate-500">
+                                Quantas dezenas do grupo-base precisam ser acertadas para ativar a garantia.
+                            </p>
+                            <input
+                                id="guarantee_hits"
+                                type="number"
+                                wire:model="guarantee_hits"
+                                min="{{ $bet_size }}"
+                                max="{{ count($base_numbers) }}"
+                                placeholder="Ex: 15 (se acertar 15 dezenas do grupo-base)"
+                                class="mt-2 block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            >
+                            @error('guarantee_hits')
+                                <p class="mt-2 text-sm font-medium text-rose-600">
+                                    {{ $message }}
+                                </p>
+                            @enderror
+                        </div>
+
+                        <div>
+                            <label
+                                for="guarantee_points"
+                                class="block text-sm font-semibold text-slate-700"
+                            >
+                                Pontos Garantidos
+                            </label>
+                            <p class="mt-1 text-xs text-slate-500">
+                                Quantos pontos serão garantidos se a condição de acertos na base for cumprida.
+                            </p>
+                            <input
+                                id="guarantee_points"
+                                type="number"
+                                wire:model="guarantee_points"
+                                min="11"
+                                max="{{ $bet_size - 1 }}"
+                                placeholder="Ex: 14 (garantir 14 pontos)"
+                                class="mt-2 block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            >
+                            @error('guarantee_points')
                                 <p class="mt-2 text-sm font-medium text-rose-600">
                                     {{ $message }}
                                 </p>

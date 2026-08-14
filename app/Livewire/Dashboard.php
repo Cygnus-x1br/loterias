@@ -4,7 +4,6 @@ namespace App\Livewire;
 
 use App\Models\Bet;
 use App\Models\Closing;
-use Illuminate\Support\Collection;
 use Livewire\Component;
 
 class Dashboard extends Component
@@ -89,7 +88,7 @@ class Dashboard extends Component
             ],
             [
                 'label' => 'Orçamento utilizado',
-                'value' => 'R$ ' . number_format((float) $totalBudget, 2, ',', '.'),
+                'value' => 'R$ '.number_format((float) $totalBudget, 2, ',', '.'),
                 'description' => $totalBudget > 0
                     ? 'soma dos fechamentos'
                     : 'nenhum orçamento registrado',
@@ -196,7 +195,7 @@ class Dashboard extends Component
 
             $activities->push([
                 'type' => 'Fechamento',
-                'name' => $closing->name ?? 'Fechamento #' . $closing->id,
+                'name' => $closing->name ?? 'Fechamento #'.$closing->id,
                 'date' => $closing->created_at?->format('d/m/Y H:i') ?? '—',
                 'status' => $status['label'],
                 'statusColor' => $status['color'],
@@ -208,7 +207,7 @@ class Dashboard extends Component
         foreach ($bets as $bet) {
             $activities->push([
                 'type' => 'Aposta',
-                'name' => 'Aposta #' . $bet->id,
+                'name' => 'Aposta #'.$bet->id,
                 'date' => $bet->created_at?->format('d/m/Y H:i') ?? '—',
                 'status' => 'Gerada',
                 'statusColor' => 'emerald',

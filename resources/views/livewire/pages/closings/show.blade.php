@@ -2,6 +2,7 @@
 
 use App\Models\Closing;
 use App\Services\Betting\ClosingGenerator;
+use App\Services\LotofacilStatisticsService;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -14,6 +15,12 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
 
     public ?string $generationSuccess = null;
 
+    public array $lastResultNumbers = [];
+
+    public ?int $lastContestNumber = null;
+
+    public bool $compareLastResult = true;
+
     public function mount(Closing $closing): void
     {
         // Garante que apenas o proprietário pode ver o fechamento
@@ -22,6 +29,17 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         }
 
         $this->closing = $closing;
+
+        $lastContestData = app(LotofacilStatisticsService::class)->getLastContestWithSum();
+        if ($lastContestData && isset($lastContestData['result']['drawn_numbers'])) {
+            $this->lastResultNumbers = $lastContestData['result']['drawn_numbers'];
+            $this->lastContestNumber = $lastContestData['result']['contest_number'] ?? null;
+        }
+    }
+
+    public function toggleCompareLastResult(): void
+    {
+        $this->compareLastResult = ! $this->compareLastResult;
     }
 
     /**
@@ -31,7 +49,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     {
         return match ($method) {
             'integral' => 'Combinação integral',
-            'reduced' => 'Fechamento reduzido',
+            'reduced' => 'Fechamento reduzido', // Removido "(em breve)"
             'wheel' => 'Sistema de roda',
             'random' => 'Geração aleatória',
             'balanced' => 'Geração equilibrada',
@@ -325,9 +343,30 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         </p>
                     </div>
 
-                    <span class="rounded-full bg-indigo-50 px-3 py-1.5 text-sm font-bold text-indigo-700">
-                        {{ $closing->bets()->count() }} apostas
-                    </span>
+                    <div class="flex flex-wrap items-center gap-3">
+                        @if (! empty($lastResultNumbers))
+                            <button
+                                type="button"
+                                wire:click="toggleCompareLastResult"
+                                @class([
+                                    'inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition shadow-sm',
+                                    'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' => $compareLastResult,
+                                    'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200' => ! $compareLastResult,
+                                ])
+                            >
+                                <span @class([
+                                    'h-2 w-2 rounded-full',
+                                    'bg-emerald-500 animate-pulse' => $compareLastResult,
+                                    'bg-slate-400' => ! $compareLastResult,
+                                ])></span>
+                                Conferir último sorteio {{ $lastContestNumber ? '(#'.$lastContestNumber.')' : '' }}
+                            </button>
+                        @endif
+
+                        <span class="rounded-full bg-indigo-50 px-3 py-1.5 text-sm font-bold text-indigo-700">
+                            {{ $closing->bets()->count() }} apostas
+                        </span>
+                    </div>
                 </div>
 
                 @if ($bets->count() > 0)
@@ -370,13 +409,41 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                         </td>
 
                                         <td class="px-5 py-4 sm:px-6">
+                                            @php
+                                                $matchedCount = 0;
+                                            @endphp
                                             <div class="flex max-w-xl flex-wrap gap-1.5">
                                                 @foreach ($bet->numbers ?? [] as $number)
-                                                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700">
+                                                    @php
+                                                        $isDrawn = $compareLastResult && in_array($number, $lastResultNumbers, true);
+                                                        if ($isDrawn) {
+                                                            $matchedCount++;
+                                                        }
+                                                    @endphp
+                                                    <span
+                                                        @class([
+                                                            'inline-flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold transition-colors',
+                                                            'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-600/30' => $isDrawn,
+                                                            'bg-indigo-50 text-indigo-700' => ! $isDrawn,
+                                                        ])
+                                                        title="{{ $isDrawn ? 'Dezena sorteada no último concurso' : '' }}"
+                                                    >
                                                         {{ str_pad($number, 2, '0', STR_PAD_LEFT) }}
                                                     </span>
                                                 @endforeach
                                             </div>
+
+                                            @if ($compareLastResult && ! empty($lastResultNumbers))
+                                                <div class="mt-2 flex items-center gap-2">
+                                                    <span @class([
+                                                        'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold',
+                                                        'bg-emerald-100 text-emerald-800 border border-emerald-300' => $matchedCount >= 11,
+                                                        'bg-slate-100 text-slate-600' => $matchedCount < 11,
+                                                    ])>
+                                                        {{ $matchedCount }} acertos {{ $lastContestNumber ? "(Concurso {$lastContestNumber})" : '' }}
+                                                    </span>
+                                                </div>
+                                            @endif
                                         </td>
 
                                         <td class="whitespace-nowrap px-5 py-4 sm:px-6">
@@ -571,6 +638,33 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                 </dt>
                                 <dd class="text-sm font-bold text-slate-800">
                                     {{ $closing->parameters['wheel_size'] }} dezenas
+                                </dd>
+                            </div>
+                        @endif
+                    </div>
+                @endif
+
+                {{-- NOVOS PARÂMETROS PARA FECHAMENTO REDUZIDO --}}
+                @if ($closing->method === 'reduced' && isset($closing->parameters['reduced_parameters']))
+                    <div class="space-y-3 pt-3 border-t border-slate-100">
+                        <h3 class="text-sm font-bold text-slate-700">Parâmetros de Fechamento Reduzido</h3>
+                        @if (isset($closing->parameters['reduced_parameters']['guarantee_hits']))
+                            <div class="flex items-center justify-between gap-4 border-b border-slate-100 pb-3">
+                                <dt class="text-sm text-slate-500">
+                                    Acertos na Base
+                                </dt>
+                                <dd class="text-sm font-bold text-slate-800">
+                                    {{ $closing->parameters['reduced_parameters']['guarantee_hits'] }} dezenas
+                                </dd>
+                            </div>
+                        @endif
+                        @if (isset($closing->parameters['reduced_parameters']['guarantee_points']))
+                            <div class="flex items-center justify-between gap-4 border-b border-slate-100 pb-3">
+                                <dt class="text-sm text-slate-500">
+                                    Pontos Garantidos
+                                </dt>
+                                <dd class="text-sm font-bold text-slate-800">
+                                    {{ $closing->parameters['reduced_parameters']['guarantee_points'] }} pontos
                                 </dd>
                             </div>
                         @endif

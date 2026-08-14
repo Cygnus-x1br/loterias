@@ -3,8 +3,8 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator; // Importar Rule para validação condicional
 
 class StoreClosingRequest extends FormRequest
 {
@@ -21,7 +21,7 @@ class StoreClosingRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [
+        $rules = [
             'name' => [
                 'required',
                 'string',
@@ -63,7 +63,7 @@ class StoreClosingRequest extends FormRequest
                 'nullable',
                 'integer',
                 'between:15,15',
-                // 'between:11,15',
+                // 'between:11,15', // Manter comentado por enquanto, pois o campo 'guarantee' é genérico
             ],
 
             'budget' => [
@@ -78,6 +78,73 @@ class StoreClosingRequest extends FormRequest
                 'max:2000',
             ],
         ];
+
+        // Regras condicionais para o método 'reduced'
+        if ($this->input('method') === 'reduced') {
+            $rules['guarantee_hits'] = [
+                'required',
+                'integer',
+                'min:'.$this->input('bet_size'), // Deve ser pelo menos o tamanho da aposta
+                'max:'.count($this->input('base_numbers', [])), // Não pode exceder o grupo-base
+            ];
+            $rules['guarantee_points'] = [
+                'required',
+                'integer',
+                'between:11,'.($this->input('bet_size') - 1), // Pontos garantidos entre 11 e (tamanho da aposta - 1)
+            ];
+        }
+
+        // Regras condicionais para o método 'balanced' (copiadas do seu Livewire, se aplicável)
+        if ($this->input('method') === 'balanced') {
+            $rules['min_even'] = ['nullable', 'integer', 'min:0', 'max:15'];
+            $rules['max_even'] = ['nullable', 'integer', 'min:0', 'max:15', 'gte:min_even'];
+            $rules['min_sum'] = ['nullable', 'integer', 'min:15', 'max:300'];
+            $rules['max_sum'] = ['nullable', 'integer', 'min:15', 'max:300', 'gte:min_sum'];
+            $rules['min_primes'] = ['nullable', 'integer', 'min:0', 'max:9'];
+            $rules['max_primes'] = ['nullable', 'integer', 'min:0', 'max:9', 'gte:min_primes'];
+            $rules['min_fibonacci'] = ['nullable', 'integer', 'min:0', 'max:7'];
+            $rules['max_fibonacci'] = ['nullable', 'integer', 'min:0', 'max:7', 'gte:min_fibonacci'];
+        }
+
+        // Regras condicionais para o método 'wheel' (copiadas do seu Livewire, se aplicável)
+        if ($this->input('method') === 'wheel') {
+            $rules['fixed_numbers'] = [
+                'required',
+                'array',
+                'min:1',
+                'max:'.($this->input('bet_size') - 1),
+            ];
+            $rules['fixed_numbers.*'] = [
+                'required',
+                'integer',
+                'distinct',
+                'between:1,25',
+                Rule::in($this->input('base_numbers', [])), // Dezenas fixas devem estar no grupo-base
+            ];
+            $rules['variable_numbers'] = [
+                'required',
+                'array',
+                'min:1',
+                'max:'.(count($this->input('base_numbers', [])) - count($this->input('fixed_numbers', []))),
+            ];
+            $rules['variable_numbers.*'] = [
+                'required',
+                'integer',
+                'distinct',
+                'between:1,25',
+                Rule::in($this->input('base_numbers', [])), // Dezenas variáveis devem estar no grupo-base
+                Rule::notIn($this->input('fixed_numbers', [])), // Não pode estar nas fixas
+            ];
+            $rules['wheel_size'] = [
+                'required',
+                'integer',
+                'min:1',
+                'max:'.count($this->input('variable_numbers', [])),
+                'size:'.($this->input('bet_size') - count($this->input('fixed_numbers', []))),
+            ];
+        }
+
+        return $rules;
     }
 
     /**
@@ -99,6 +166,33 @@ class StoreClosingRequest extends FormRequest
                     'O tamanho de cada aposta não pode ser maior que a quantidade de dezenas do grupo-base.'
                 );
             }
+
+            // Validação adicional para o método 'reduced'
+            if ($this->input('method') === 'reduced') {
+                $guaranteeHits = $this->input('guarantee_hits');
+                $guaranteePoints = $this->input('guarantee_points');
+
+                if ($guaranteeHits !== null && $guaranteePoints !== null) {
+                    if ($guaranteePoints >= $betSize) {
+                        $validator->errors()->add(
+                            'guarantee_points',
+                            'Os pontos garantidos devem ser menores que o tamanho da aposta.'
+                        );
+                    }
+                    if ($guaranteeHits < $betSize) {
+                        $validator->errors()->add(
+                            'guarantee_hits',
+                            'O número de acertos na base para garantia deve ser maior ou igual ao tamanho da aposta.'
+                        );
+                    }
+                    if ($guaranteeHits > count($baseNumbers)) {
+                        $validator->errors()->add(
+                            'guarantee_hits',
+                            'O número de acertos na base para garantia não pode ser maior que o grupo-base.'
+                        );
+                    }
+                }
+            }
         });
     }
 
@@ -107,7 +201,7 @@ class StoreClosingRequest extends FormRequest
      */
     public function messages(): array
     {
-        return [
+        $messages = [
             'name.required' => 'Informe um nome para o fechamento.',
             'name.string' => 'O nome do fechamento deve ser um texto.',
             'name.max' => 'O nome do fechamento não pode ultrapassar 255 caracteres.',
@@ -140,7 +234,70 @@ class StoreClosingRequest extends FormRequest
 
             'notes.string' => 'As observações devem ser um texto.',
             'notes.max' => 'As observações não podem ultrapassar 2.000 caracteres.',
+
+            // Mensagens para o método 'reduced'
+            'guarantee_hits.required' => 'Informe o número de acertos na base para garantia.',
+            'guarantee_hits.integer' => 'O número de acertos na base para garantia deve ser um número inteiro.',
+            'guarantee_hits.min' => 'O número de acertos na base para garantia deve ser pelo menos :min.',
+            'guarantee_hits.max' => 'O número de acertos na base para garantia não pode exceder :max.',
+
+            'guarantee_points.required' => 'Informe os pontos garantidos.',
+            'guarantee_points.integer' => 'Os pontos garantidos devem ser um número inteiro.',
+            'guarantee_points.between' => 'Os pontos garantidos devem estar entre :min e :max.',
+
+            // Mensagens para os parâmetros de equilíbrio (copiadas do seu Livewire)
+            'min_even.min' => 'O mínimo de pares não pode ser negativo.',
+            'min_even.max' => 'O mínimo de pares não pode exceder 15.',
+            'max_even.min' => 'O máximo de pares não pode ser negativo.',
+            'max_even.max' => 'O máximo de pares não pode exceder 15.',
+            'max_even.gte' => 'O máximo de pares deve ser maior ou igual ao mínimo.',
+
+            'min_sum.min' => 'A soma mínima não pode ser menor que 15.',
+            'min_sum.max' => 'A soma mínima não pode exceder 300.',
+            'max_sum.min' => 'A soma máxima não pode ser menor que 15.',
+            'max_sum.max' => 'A soma máxima não pode exceder 300.',
+            'max_sum.gte' => 'A soma máxima deve ser maior ou igual à soma mínima.',
+
+            'min_primes.min' => 'O mínimo de primos não pode ser negativo.',
+            'min_primes.max' => 'O mínimo de primos não pode exceder 9.',
+            'max_primes.min' => 'O máximo de primos não pode ser negativo.',
+            'max_primes.max' => 'O máximo de primos não pode exceder 9.',
+            'max_primes.gte' => 'O máximo de primos deve ser maior ou igual ao mínimo.',
+
+            'min_fibonacci.min' => 'O mínimo de Fibonacci não pode ser negativo.',
+            'min_fibonacci.max' => 'O mínimo de Fibonacci não pode exceder 7.',
+            'max_fibonacci.min' => 'O máximo de Fibonacci não pode ser negativo.',
+            'max_fibonacci.max' => 'O máximo de Fibonacci não pode exceder 7.',
+            'max_fibonacci.gte' => 'O máximo de Fibonacci deve ser maior ou igual ao mínimo.',
+
+            // Mensagens para os parâmetros do sistema de roda (copiadas do seu Livewire)
+            'fixed_numbers.required' => 'Selecione as dezenas fixas.',
+            'fixed_numbers.array' => 'As dezenas fixas devem ser uma lista.',
+            'fixed_numbers.min' => 'Selecione pelo menos uma dezena fixa.',
+            'fixed_numbers.max' => 'O número de dezenas fixas não pode ser maior que o tamanho da aposta menos 1.',
+            'fixed_numbers.*.required' => 'A dezena fixa não pode ser vazia.',
+            'fixed_numbers.*.distinct' => 'Não é permitido repetir dezenas fixas.',
+            'fixed_numbers.*.between' => 'As dezenas fixas devem estar entre 1 e 25.',
+            'fixed_numbers.*.in' => 'A dezena fixa :input não está no grupo-base.',
+
+            'variable_numbers.required' => 'Selecione as dezenas variáveis.',
+            'variable_numbers.array' => 'As dezenas variáveis devem ser uma lista.',
+            'variable_numbers.min' => 'Selecione pelo menos uma dezena variável.',
+            'variable_numbers.max' => 'O número de dezenas variáveis excede o restante do grupo-base.',
+            'variable_numbers.*.required' => 'A dezena variável não pode ser vazia.',
+            'variable_numbers.*.distinct' => 'Não é permitido repetir dezenas variáveis.',
+            'variable_numbers.*.between' => 'As dezenas variáveis devem estar entre 1 e 25.',
+            'variable_numbers.*.in' => 'A dezena variável :input não está no grupo-base.',
+            'variable_numbers.*.not_in' => 'A dezena variável :input também está nas dezenas fixas.',
+
+            'wheel_size.required' => 'Informe o tamanho da roda.',
+            'wheel_size.integer' => 'O tamanho da roda deve ser um número inteiro.',
+            'wheel_size.min' => 'O tamanho da roda deve ser de pelo menos 1.',
+            'wheel_size.max' => 'O tamanho da roda não pode exceder o número de dezenas variáveis.',
+            'wheel_size.size' => 'A soma das dezenas fixas e o tamanho da roda deve ser igual ao tamanho da aposta.',
         ];
+
+        return $messages;
     }
 
     /**
@@ -158,6 +315,21 @@ class StoreClosingRequest extends FormRequest
             'guarantee' => 'garantia',
             'budget' => 'orçamento',
             'notes' => 'observações',
+            'guarantee_hits' => 'acertos na base para garantia',
+            'guarantee_points' => 'pontos garantidos',
+            'min_even' => 'mínimo de pares',
+            'max_even' => 'máximo de pares',
+            'min_sum' => 'soma mínima',
+            'max_sum' => 'soma máxima',
+            'min_primes' => 'mínimo de primos',
+            'max_primes' => 'máximo de primos',
+            'min_fibonacci' => 'mínimo de Fibonacci',
+            'max_fibonacci' => 'máximo de Fibonacci',
+            'fixed_numbers' => 'dezenas fixas',
+            'fixed_numbers.*' => 'dezena fixa',
+            'variable_numbers' => 'dezenas variáveis',
+            'variable_numbers.*' => 'dezena variável',
+            'wheel_size' => 'tamanho da roda',
         ];
     }
 }
