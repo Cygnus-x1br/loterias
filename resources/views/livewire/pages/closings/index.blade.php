@@ -155,6 +155,8 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
             'draft' => 'Rascunho',
             'processing' => 'Em processamento',
             'completed' => 'Concluído',
+            'placed' => 'Apostado',
+            'checked' => 'Conferido',
             'failed' => 'Falhou',
             default => ucfirst((string) $status),
         };
@@ -435,6 +437,8 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                     <option value="draft">Rascunho</option>
                     <option value="processing">Em processamento</option>
                     <option value="completed">Concluído</option>
+                    <option value="placed">Apostado</option>
+                    <option value="checked">Conferido</option>
                     <option value="failed">Falhou</option>
                 </select>
             </div>
@@ -535,7 +539,9 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                         match ($closing->status) {
                                             'draft' => 'bg-amber-50 text-amber-700',
                                             'processing' => 'bg-sky-50 text-sky-700',
-                                            'completed' => 'bg-emerald-50 text-emerald-700',
+                                            'completed' => 'bg-indigo-50 text-indigo-700',
+                                            'placed' => 'bg-amber-100 text-amber-800 border border-amber-200',
+                                            'checked' => 'bg-emerald-100 text-emerald-800 border border-emerald-200',
                                             'failed' => 'bg-rose-50 text-rose-700',
                                             default => 'bg-slate-100 text-slate-700',
                                         },
@@ -657,7 +663,9 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                 match ($closing->status) {
                                     'draft' => 'bg-amber-50 text-amber-700',
                                     'processing' => 'bg-sky-50 text-sky-700',
-                                    'completed' => 'bg-emerald-50 text-emerald-700',
+                                    'completed' => 'bg-indigo-50 text-indigo-700',
+                                    'placed' => 'bg-amber-100 text-amber-800 border border-amber-200',
+                                    'checked' => 'bg-emerald-100 text-emerald-800 border border-emerald-200',
                                     'failed' => 'bg-rose-50 text-rose-700',
                                     default => 'bg-slate-100 text-slate-700',
                                 },

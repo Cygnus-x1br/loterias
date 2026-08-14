@@ -152,21 +152,6 @@
             </div>
         </nav>
     </div>
-
-    <div class="border-t border-slate-200 p-4">
-        <div class="rounded-2xl bg-slate-50 p-4">
-            <div class="mb-2 flex items-center gap-2">
-                <span class="h-2 w-2 rounded-full bg-amber-400"></span>
-                <span class="text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Ambiente demonstrativo
-                </span>
-            </div>
-
-            <p class="text-xs leading-5 text-slate-500">
-                Os dados exibidos ainda não estão conectados ao banco de dados.
-            </p>
-        </div>
-    </div>
 </aside>
 
 <style>

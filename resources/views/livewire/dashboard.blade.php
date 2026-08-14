@@ -102,20 +102,6 @@
         </div>
     </section>
 
-    {{-- Nova seção para as estatísticas da Lotofácil --}}
-    <section>
-        <div class="mb-4">
-            <h2 class="text-base font-bold text-slate-900">
-                Estatísticas da Lotofácil
-            </h2>
-            <p class="mt-1 text-sm text-slate-500">
-                Análise dos resultados históricos para auxiliar na criação de novas apostas.
-            </p>
-        </div>
-        <livewire:lotofacil-statistics />
-    </section>
-    {{-- Fim da nova seção --}}
-
     <section>
         <div class="mb-4">
             <h2 class="text-base font-bold text-slate-900">

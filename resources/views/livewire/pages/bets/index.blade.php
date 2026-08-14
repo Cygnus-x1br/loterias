@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Bet;
+use App\Models\HistoricalResult;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\WithPagination;
@@ -17,6 +18,12 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
     public bool $confirmingAllBetsDeletion = false;
 
     public string $deleteAllConfirmationInput = '';
+
+    // Modal e dados de "Marcar como Apostado"
+    public bool $showMarkAsPlacedModal = false;
+    public ?int $selectedBetId = null;
+    public ?int $placedContestNumber = null;
+    public ?string $placedDrawDate = null;
 
     /**
      * Palavra-chave exigida para confirmar a exclusão em massa.
@@ -50,6 +57,111 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
         ]);
 
         $this->resetPage();
+    }
+
+    /**
+     * Abre modal para marcar aposta individual como apostada.
+     */
+    public function openMarkAsPlacedModal(int $betId): void
+    {
+        $bet = Bet::query()
+            ->where('id', $betId)
+            ->where('user_id', Auth::id())
+            ->first();
+
+        if (! $bet) {
+            session()->flash('error', 'Aposta não encontrada.');
+            return;
+        }
+
+        $this->selectedBetId = $bet->id;
+        $this->placedContestNumber = $bet->contest_number;
+        $this->placedDrawDate = $bet->draw_date ? $bet->draw_date->format('Y-m-d') : now()->format('Y-m-d');
+        $this->resetErrorBag();
+        $this->showMarkAsPlacedModal = true;
+    }
+
+    public function closeMarkAsPlacedModal(): void
+    {
+        $this->reset(['showMarkAsPlacedModal', 'selectedBetId', 'placedContestNumber', 'placedDrawDate']);
+    }
+
+    public function markBetAsPlaced(): void
+    {
+        $this->validate([
+            'placedContestNumber' => ['required', 'integer', 'min:1'],
+            'placedDrawDate' => ['nullable', 'date'],
+        ], [
+            'placedContestNumber.required' => 'Informe o número do concurso.',
+            'placedContestNumber.integer' => 'O número do concurso deve ser um número inteiro.',
+            'placedContestNumber.min' => 'O número do concurso deve ser maior que zero.',
+        ]);
+
+        $bet = Bet::query()
+            ->where('id', $this->selectedBetId)
+            ->where('user_id', Auth::id())
+            ->first();
+
+        if (! $bet) {
+            session()->flash('error', 'Aposta não encontrada.');
+            $this->closeMarkAsPlacedModal();
+            return;
+        }
+
+        $bet->update([
+            'status' => 'placed',
+            'contest_number' => $this->placedContestNumber,
+            'draw_date' => $this->placedDrawDate ?: null,
+        ]);
+
+        session()->flash('success', "Aposta #{$bet->id} marcada como Apostada no Concurso #{$this->placedContestNumber}!");
+        $this->closeMarkAsPlacedModal();
+    }
+
+    /**
+     * Confere uma aposta individual contra o resultado do concurso cadastrado em HistoricalResult.
+     */
+    public function checkBet(int $betId): void
+    {
+        $bet = Bet::query()
+            ->where('id', $betId)
+            ->where('user_id', Auth::id())
+            ->first();
+
+        if (! $bet) {
+            session()->flash('error', 'Aposta não encontrada.');
+            return;
+        }
+
+        if (! $bet->contest_number) {
+            session()->flash('error', 'Esta aposta não possui concurso vinculado.');
+            return;
+        }
+
+        $historicalResult = HistoricalResult::query()
+            ->where('contest_number', $bet->contest_number)
+            ->first();
+
+        if (! $historicalResult) {
+            session()->flash('error', "O resultado do Concurso #{$bet->contest_number} ainda não foi cadastrado no sistema em 'Resultados Anteriores'.");
+            return;
+        }
+
+        $drawnNumbers = is_array($historicalResult->drawn_numbers)
+            ? $historicalResult->drawn_numbers
+            : (json_decode((string) $historicalResult->drawn_numbers, true) ?? []);
+
+        $drawnNumbers = array_map('intval', $drawnNumbers);
+        $betNumbers = is_array($bet->numbers) ? $bet->numbers : (json_decode((string) $bet->numbers, true) ?? []);
+
+        $hits = count(array_intersect($betNumbers, $drawnNumbers));
+
+        $bet->update([
+            'hits' => $hits,
+            'status' => 'checked',
+        ]);
+
+        session()->flash('success', "Aposta #{$bet->id} conferida: {$hits} acertos no Concurso #{$bet->contest_number}!");
     }
 
     /**
@@ -94,9 +206,10 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
     {
         return match ($status) {
             'active' => 'Ativas',
-            'inactive' => 'Inativas',
+            'placed' => 'Apostadas',
             'checked' => 'Conferidas',
-            default => $status,
+            'inactive' => 'Inativas',
+            default => ucfirst($status),
         };
     }
 
@@ -117,7 +230,8 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
                         $query
                             ->where('name', 'like', "%{$search}%")
                             ->orWhere('method', 'like', "%{$search}%")
-                            ->orWhere('source', 'like', "%{$search}%");
+                            ->orWhere('source', 'like', "%{$search}%")
+                            ->orWhere('contest_number', 'like', "%{$search}%");
                     });
                 }
             )
@@ -378,8 +492,9 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
                 >
                     <option value="">Todos os status</option>
                     <option value="active">Ativas</option>
-                    <option value="inactive">Inativas</option>
+                    <option value="placed">Apostadas</option>
                     <option value="checked">Conferidas</option>
+                    <option value="inactive">Inativas</option>
                 </select>
             </div>
 
@@ -403,7 +518,7 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
                 </h2>
 
                 <p class="mt-1 text-sm text-slate-500">
-                    Gerencie suas seleções de dezenas.
+                    Gerencie suas seleções de dezenas e confira seus resultados.
                 </p>
             </div>
 
@@ -413,31 +528,31 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
         </div>
 
         @if ($bets->count() > 0)
-            <div class="hidden overflow-x-auto md:block">
-                <table class="min-w-full divide-y divide-slate-100">
-                    <thead class="bg-slate-50">
+            <div class="hidden overflow-hidden md:block">
+                <table class="w-full table-auto divide-y divide-slate-100 text-sm">
+                    <thead class="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                            <th class="px-4 py-3 text-left">
                                 Aposta
                             </th>
 
-                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                            <th class="px-4 py-3 text-left">
                                 Dezenas
                             </th>
 
-                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                                Método
+                            <th class="px-4 py-3 text-left">
+                                Status / Concurso
                             </th>
 
-                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                                Status
+                            <th class="px-4 py-3 text-center">
+                                Acertos
                             </th>
 
-                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                            <th class="px-4 py-3 text-left">
                                 Cadastro
                             </th>
 
-                            <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                            <th class="px-4 py-3 text-right">
                                 Ações
                             </th>
                         </tr>
@@ -446,84 +561,130 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
                     <tbody class="divide-y divide-slate-100 bg-white">
                         @foreach ($bets as $bet)
                             <tr wire:key="bet-row-{{ $bet->id }}" class="transition hover:bg-slate-50">
-                                <td class="whitespace-nowrap px-6 py-4">
-                                    <div class="font-semibold text-slate-900">
+                                <td class="px-4 py-3">
+                                    <div class="font-semibold text-slate-900 leading-tight">
                                         {{ $bet->name ?: 'Aposta #' . $bet->id }}
                                     </div>
 
-                                    <div class="mt-1 text-xs text-slate-500">
+                                    <div class="mt-0.5 text-xs text-slate-500">
                                         #{{ $bet->id }}
+                                        @if ($bet->closing_id)
+                                            &middot; <span class="text-indigo-600 font-medium">Fech. #{{ $bet->closing_id }}</span>
+                                        @endif
                                     </div>
                                 </td>
 
-                                <td class="px-6 py-4">
-                                    <div class="flex max-w-xs flex-wrap gap-1.5">
+                                <td class="px-4 py-3">
+                                    <div class="grid grid-cols-5 gap-1 w-max">
                                         @foreach ($bet->numbers ?? [] as $number)
-                                            <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700">
+                                            <span class="inline-flex h-6 w-6 items-center justify-center rounded-md bg-indigo-50 text-xs font-bold text-indigo-700">
                                                 {{ str_pad($number, 2, '0', STR_PAD_LEFT) }}
                                             </span>
                                         @endforeach
                                     </div>
                                 </td>
 
-                                <td class="whitespace-nowrap px-6 py-4">
-                                    <span class="text-sm font-medium text-slate-700">
-                                        {{ match ($bet->method) {
-                                            'manual' => 'Manual',
-                                            'integral' => 'Integral',
-                                            'reduced' => 'Reduzido',
-                                            'wheel' => 'Sistema de roda',
-                                            'random' => 'Aleatório',
-                                            'balanced' => 'Equilibrado',
-                                            default => ucfirst((string) $bet->method),
-                                        } }}
-                                    </span>
+                                <td class="px-4 py-3">
+                                    <div class="flex flex-col gap-1 items-start">
+                                        @if ($bet->status === 'active')
+                                            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                                Ativa
+                                            </span>
+                                        @elseif ($bet->status === 'placed')
+                                            <span class="rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-xs font-semibold">
+                                                Apostada
+                                            </span>
+                                        @elseif ($bet->status === 'checked')
+                                            <span class="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-xs font-semibold">
+                                                Conferida
+                                            </span>
+                                        @else
+                                            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                                                {{ ucfirst((string) $bet->status) }}
+                                            </span>
+                                        @endif
+
+                                        @if ($bet->contest_number)
+                                            <span class="text-xs font-bold text-indigo-700">
+                                                Conc. #{{ $bet->contest_number }}
+                                            </span>
+                                        @endif
+                                    </div>
                                 </td>
 
-                                <td class="whitespace-nowrap px-6 py-4">
-                                    @if ($bet->status === 'active')
-                                        <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                                            Ativa
-                                        </span>
-                                    @elseif ($bet->status === 'checked')
-                                        <span class="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
-                                            Conferida
+                                <td class="px-4 py-3 text-center">
+                                    @if ($bet->hits !== null)
+                                        <span @class([
+                                            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold',
+                                            'bg-amber-100 text-amber-900 border border-amber-300' => $bet->hits === 15,
+                                            'bg-emerald-100 text-emerald-800 border border-emerald-300' => in_array($bet->hits, [11, 12, 13, 14]),
+                                            'bg-slate-100 text-slate-600' => $bet->hits < 11,
+                                        ])>
+                                            {{ $bet->hits }} acertos
                                         </span>
                                     @else
-                                        <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                                            {{ ucfirst((string) $bet->status) }}
-                                        </span>
+                                        <span class="text-xs text-slate-400">—</span>
                                     @endif
                                 </td>
 
-                                <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
+                                <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
                                     {{ $bet->created_at?->format('d/m/Y H:i') }}
                                 </td>
 
-                                <td class="whitespace-nowrap px-6 py-4 text-right">
-                                    <button
-                                        type="button"
-                                        wire:click="delete({{ $bet->id }})"
-                                        wire:confirm="Tem certeza que deseja excluir esta aposta?"
-                                        wire:loading.attr="disabled"
-                                        class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        <svg
-                                            class="h-4 w-4"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            viewBox="0 0 24 24"
+                                <td class="px-4 py-3 text-right whitespace-nowrap">
+                                    <div class="flex items-center justify-end gap-1.5">
+                                        {{-- Botão Marcar Apostado --}}
+                                        <button
+                                            type="button"
+                                            wire:click="openMarkAsPlacedModal({{ $bet->id }})"
+                                            class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                                            title="{{ $bet->status === 'placed' ? 'Editar dados do concurso' : 'Marcar como Apostada' }}"
                                         >
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                stroke-width="2"
-                                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
-                                            />
-                                        </svg>
+                                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                            </svg>
+                                            {{ $bet->status === 'placed' || $bet->status === 'checked' ? 'Concurso' : 'Apostar' }}
+                                        </button>
 
-                                        Excluir
-                                    </button>
+                                        {{-- Botão Conferir --}}
+                                        @if ($bet->contest_number)
+                                            <button
+                                                type="button"
+                                                wire:click="checkBet({{ $bet->id }})"
+                                                wire:loading.attr="disabled"
+                                                class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                                                title="Conferir aposta contra o resultado do sorteio"
+                                            >
+                                                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                Conferir
+                                            </button>
+                                        @endif
+
+                                        <button
+                                            type="button"
+                                            wire:click="delete({{ $bet->id }})"
+                                            wire:confirm="Tem certeza que deseja excluir esta aposta?"
+                                            wire:loading.attr="disabled"
+                                            class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            <svg
+                                                class="h-3.5 w-3.5"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                viewBox="0 0 24 24"
+                                            >
+                                                <path
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    stroke-width="2"
+                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
+                                                />
+                                            </svg>
+                                            Excluir
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach
@@ -544,23 +705,38 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
                                 </h3>
 
                                 <p class="mt-1 text-xs text-slate-500">
-                                    Cadastrada em {{ $bet->created_at?->format('d/m/Y H:i') }}
+                                    #{{ $bet->id }} &middot; Cadastrada em {{ $bet->created_at?->format('d/m/Y H:i') }}
+                                    @if ($bet->closing_id)
+                                        &middot; Fechamento #{{ $bet->closing_id }}
+                                    @endif
                                 </p>
                             </div>
 
-                            @if ($bet->status === 'active')
-                                <span class="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                                    Ativa
-                                </span>
-                            @elseif ($bet->status === 'checked')
-                                <span class="shrink-0 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
-                                    Conferida
-                                </span>
-                            @else
-                                <span class="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                                    {{ ucfirst((string) $bet->status) }}
-                                </span>
-                            @endif
+                            <div class="flex flex-col items-end gap-1">
+                                @if ($bet->status === 'active')
+                                    <span class="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                        Ativa
+                                    </span>
+                                @elseif ($bet->status === 'placed')
+                                    <span class="shrink-0 rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2.5 py-1 text-xs font-semibold">
+                                        Apostada
+                                    </span>
+                                @elseif ($bet->status === 'checked')
+                                    <span class="shrink-0 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 text-xs font-semibold">
+                                        Conferida
+                                    </span>
+                                @else
+                                    <span class="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                                        {{ ucfirst((string) $bet->status) }}
+                                    </span>
+                                @endif
+
+                                @if ($bet->contest_number)
+                                    <span class="text-xs font-bold text-indigo-700">
+                                        Conc. #{{ $bet->contest_number }}
+                                    </span>
+                                @endif
+                            </div>
                         </div>
 
                         <div>
@@ -568,7 +744,7 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
                                 Dezenas
                             </p>
 
-                            <div class="flex flex-wrap gap-1.5">
+                            <div class="grid grid-cols-5 gap-1.5 w-max max-w-full">
                                 @foreach ($bet->numbers ?? [] as $number)
                                     <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700">
                                         {{ str_pad($number, 2, '0', STR_PAD_LEFT) }}
@@ -579,43 +755,62 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
 
                         <div class="flex items-center justify-between border-t border-slate-100 pt-4">
                             <div class="text-sm text-slate-500">
-                                Método:
-                                <span class="font-semibold text-slate-700">
-                                    {{ match ($bet->method) {
-                                        'manual' => 'Manual',
-                                        'integral' => 'Integral',
-                                        'reduced' => 'Reduzido',
-                                        'wheel' => 'Sistema de roda',
-                                        'random' => 'Aleatório',
-                                        'balanced' => 'Equilibrado',
-                                        default => ucfirst((string) $bet->method),
-                                    } }}
-                                </span>
+                                @if ($bet->hits !== null)
+                                    Acertos:
+                                    <span @class([
+                                        'font-bold px-2 py-0.5 rounded-full text-xs',
+                                        'bg-amber-100 text-amber-900' => $bet->hits === 15,
+                                        'bg-emerald-100 text-emerald-800' => in_array($bet->hits, [11, 12, 13, 14]),
+                                        'bg-slate-100 text-slate-600' => $bet->hits < 11,
+                                    ])>
+                                        {{ $bet->hits }} acertos
+                                    </span>
+                                @else
+                                    Método:
+                                    <span class="font-semibold text-slate-700">
+                                        {{ match ($bet->method) {
+                                            'manual' => 'Manual',
+                                            'integral' => 'Integral',
+                                            'reduced' => 'Reduzido',
+                                            'wheel' => 'Sistema de roda',
+                                            'random' => 'Aleatório',
+                                            'balanced' => 'Equilibrado',
+                                            default => ucfirst((string) $bet->method),
+                                        } }}
+                                    </span>
+                                @endif
                             </div>
 
-                            <button
-                                type="button"
-                                wire:click="delete({{ $bet->id }})"
-                                wire:confirm="Tem certeza que deseja excluir esta aposta?"
-                                wire:loading.attr="disabled"
-                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                <svg
-                                    class="h-4 w-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
+                            <div class="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    wire:click="openMarkAsPlacedModal({{ $bet->id }})"
+                                    class="rounded-lg px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
                                 >
-                                    <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
-                                    />
-                                </svg>
+                                    {{ $bet->status === 'placed' || $bet->status === 'checked' ? 'Concurso' : 'Apostar' }}
+                                </button>
 
-                                Excluir
-                            </button>
+                                @if ($bet->contest_number)
+                                    <button
+                                        type="button"
+                                        wire:click="checkBet({{ $bet->id }})"
+                                        wire:loading.attr="disabled"
+                                        class="rounded-lg px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                                    >
+                                        Conferir
+                                    </button>
+                                @endif
+
+                                <button
+                                    type="button"
+                                    wire:click="delete({{ $bet->id }})"
+                                    wire:confirm="Tem certeza que deseja excluir esta aposta?"
+                                    wire:loading.attr="disabled"
+                                    class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Excluir
+                                </button>
+                            </div>
                         </div>
                     </article>
                 @endforeach
@@ -692,29 +887,83 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
         @endif
     </section>
 
-    <section class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-        <div class="flex items-start gap-3">
-            <svg
-                class="mt-0.5 h-5 w-5 shrink-0 text-amber-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-            >
-                <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 9v3m0 4h.01M10.3 3.7L2.8 17a2 2 0 001.7 3h15a2 2 0 001.7 0L13.7 3.7a2 2 0 00-3.4 0z"
-                />
-            </svg>
+    {{-- Modal Marcar Aposta como Apostada --}}
+    @if ($showMarkAsPlacedModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div class="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-5">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">
+                            Marcar Aposta como Apostada
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">
+                            Informe os dados do concurso em que a aposta #{{ $selectedBetId }} foi registrada.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        wire:click="closeMarkAsPlacedModal"
+                        class="text-slate-400 hover:text-slate-600 rounded-lg p-1"
+                    >
+                        ✕
+                    </button>
+                </div>
 
-            <p class="text-sm leading-6 text-amber-800">
-                Nesta etapa, a tela apenas gerencia as apostas cadastradas.
-                A conferência de resultados e os cálculos matemáticos serão implementados posteriormente.
-            </p>
+                <div class="space-y-4">
+                    <div>
+                        <label for="placedContestNumber" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Número do Concurso <span class="text-rose-500">*</span>
+                        </label>
+                        <input
+                            type="number"
+                            id="placedContestNumber"
+                            wire:model="placedContestNumber"
+                            placeholder="Ex: 3120"
+                            min="1"
+                            class="w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        >
+                        @error('placedContestNumber')
+                            <p class="mt-1 text-xs text-rose-600 font-medium">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <div>
+                        <label for="placedDrawDate" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Data do Sorteio (Opcional)
+                        </label>
+                        <input
+                            type="date"
+                            id="placedDrawDate"
+                            wire:model="placedDrawDate"
+                            class="w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        >
+                        @error('placedDrawDate')
+                            <p class="mt-1 text-xs text-rose-600 font-medium">{{ $message }}</p>
+                        @enderror
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button
+                        type="button"
+                        wire:click="closeMarkAsPlacedModal"
+                        class="px-4 py-2 text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-100"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        wire:click="markBetAsPlaced"
+                        class="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-sm"
+                    >
+                        Confirmar Apostada
+                    </button>
+                </div>
+            </div>
         </div>
-    </section>
+    @endif
 
+    {{-- Modal Excluir em Massa --}}
     @if ($confirmingAllBetsDeletion)
         <div
             class="fixed inset-0 z-50 flex items-center justify-center p-4"

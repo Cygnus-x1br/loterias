@@ -15,6 +15,9 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/dashboard/analises-lotofacil', LotofacilAnalysis::class)
         ->name('lotofacil.analysis');
+
+    Route::get('/analises_lotofacil', LotofacilAnalysis::class)
+        ->name('lotofacil.analises_lotofacil');
 });
 
 Route::middleware('auth')

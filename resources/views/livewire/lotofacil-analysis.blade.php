@@ -493,5 +493,10 @@
                 </div>
             </div>
         </section>
+
+        {{-- Estatísticas de Frequência, Pares/Trios e Repetições Históricas --}}
+        <section>
+            <livewire:lotofacil-statistics />
+        </section>
     @endif
 </div>

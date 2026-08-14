@@ -15,6 +15,12 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
 
     public string $method = 'manual';
 
+    public string $status = 'active';
+
+    public ?int $contest_number = null;
+
+    public ?string $draw_date = null;
+
     public string $notes = '';
 
     public bool $processing = false;
@@ -53,6 +59,24 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
                 'in:manual,integral,reduced,wheel,random,balanced',
             ],
 
+            'status' => [
+                'required',
+                'string',
+                'in:active,placed',
+            ],
+
+            'contest_number' => [
+                'required_if:status,placed',
+                'nullable',
+                'integer',
+                'min:1',
+            ],
+
+            'draw_date' => [
+                'nullable',
+                'date',
+            ],
+
             'notes' => [
                 'nullable',
                 'string',
@@ -80,6 +104,15 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
 
             'method.required' => 'Selecione o método da aposta.',
             'method.in' => 'O método informado não é válido.',
+
+            'status.required' => 'Selecione o status da aposta.',
+            'status.in' => 'O status informado não é válido.',
+
+            'contest_number.required_if' => 'Informe o número do concurso quando a aposta estiver marcada como Apostada.',
+            'contest_number.integer' => 'O número do concurso deve ser um número inteiro.',
+            'contest_number.min' => 'O número do concurso deve ser maior que zero.',
+
+            'draw_date.date' => 'Informe uma data de sorteio válida.',
 
             'notes.max' => 'As observações não podem ultrapassar 2.000 caracteres.',
         ];
@@ -151,7 +184,9 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
                 'numbers' => $validated['numbers'],
                 'source' => $validated['source'],
                 'method' => $validated['method'],
-                'status' => 'active',
+                'status' => $validated['status'],
+                'contest_number' => $validated['status'] === 'placed' ? $validated['contest_number'] : null,
+                'draw_date' => $validated['status'] === 'placed' ? ($validated['draw_date'] ?: null) : null,
                 'hits' => null,
                 'notes' => $validated['notes'] ?: null,
             ]);
@@ -458,6 +493,78 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
                     </p>
                 @enderror
             </div>
+
+            <div>
+                <label
+                    for="status"
+                    class="block text-sm font-semibold text-slate-700"
+                >
+                    Status da aposta
+                </label>
+
+                <select
+                    id="status"
+                    wire:model.live="status"
+                    class="mt-2 block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                >
+                    <option value="active">Ativa (Apenas cadastrada)</option>
+                    <option value="placed">Apostada (Registrada em concurso)</option>
+                </select>
+
+                @error('status')
+                    <p class="mt-2 text-sm text-rose-600">
+                        {{ $message }}
+                    </p>
+                @enderror
+            </div>
+
+            @if ($status === 'placed')
+                <div>
+                    <label
+                        for="contest_number"
+                        class="block text-sm font-semibold text-slate-700"
+                    >
+                        Número do Concurso <span class="text-rose-500">*</span>
+                    </label>
+
+                    <input
+                        id="contest_number"
+                        type="number"
+                        wire:model="contest_number"
+                        min="1"
+                        placeholder="Ex: 3120"
+                        class="mt-2 block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    >
+
+                    @error('contest_number')
+                        <p class="mt-2 text-sm text-rose-600">
+                            {{ $message }}
+                        </p>
+                    @enderror
+                </div>
+
+                <div>
+                    <label
+                        for="draw_date"
+                        class="block text-sm font-semibold text-slate-700"
+                    >
+                        Data do Sorteio (Opcional)
+                    </label>
+
+                    <input
+                        id="draw_date"
+                        type="date"
+                        wire:model="draw_date"
+                        class="mt-2 block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    >
+
+                    @error('draw_date')
+                        <p class="mt-2 text-sm text-rose-600">
+                            {{ $message }}
+                        </p>
+                    @enderror
+                </div>
+            @endif
 
             <div class="md:col-span-2">
                 <label

@@ -113,7 +113,9 @@ class ClosingGenerator
                         'numbers' => $combination,
                         'source' => 'closing',
                         'method' => $closing->method,
-                        'status' => 'active',
+                        'status' => $closing->status === 'placed' ? 'placed' : 'active',
+                        'contest_number' => $closing->contest_number,
+                        'draw_date' => $closing->draw_date,
                         'notes' => null,
                     ]);
 

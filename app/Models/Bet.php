@@ -20,6 +20,8 @@ class Bet extends Model
         'source',
         'method',
         'status',
+        'contest_number',
+        'draw_date',
         'hits',
         'notes',
         'closing_id',
@@ -33,6 +35,8 @@ class Bet extends Model
         return [
             'numbers' => 'array',
             'hits' => 'integer',
+            'contest_number' => 'integer',
+            'draw_date' => 'date',
         ];
     }
 
