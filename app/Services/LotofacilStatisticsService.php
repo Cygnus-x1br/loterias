@@ -338,4 +338,21 @@ class LotofacilStatisticsService
             ];
         });
     }
+
+    /**
+     * Retorna um array associativo com todos os hashes (sha256) das dezenas já sorteadas na história.
+     *
+     * @return array<string, bool>
+     */
+    public function getHistoricalDrawHashes(): array
+    {
+        return Cache::remember('historical_draw_hashes', now()->addHours(6), function () {
+            $hashes = HistoricalResult::query()
+                ->whereNotNull('drawn_numbers_hash')
+                ->pluck('drawn_numbers_hash')
+                ->all();
+
+            return array_fill_keys($hashes, true);
+        });
+    }
 }

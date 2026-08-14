@@ -4,6 +4,7 @@ namespace Tests\Feature\Services\Betting;
 
 use App\Models\Bet;
 use App\Models\Closing;
+use App\Models\HistoricalResult;
 use App\Models\User;
 use App\Services\Betting\ClosingGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -198,5 +199,39 @@ class ClosingGeneratorTest extends TestCase
             'id' => $closing->id,
             'status' => 'failed',
         ]);
+    }
+
+    public function test_filters_out_combinations_matching_historical_draws(): void
+    {
+        $user = User::factory()->create();
+
+        // Cria um sorteio histórico para a combinação 1 a 15
+        HistoricalResult::create([
+            'contest_number' => 9999,
+            'draw_date' => now(),
+            'drawn_numbers' => range(1, 15),
+            'drawn_numbers_hash' => HistoricalResult::generateDrawnNumbersHash(range(1, 15)),
+        ]);
+
+        // Fechamento com base de 1 a 16 pedindo 2 apostas de 15
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'name' => 'Fechamento sem repetidos históricos',
+            'method' => 'integral',
+            'status' => 'draft',
+            'base_numbers' => range(1, 16),
+            'bet_size' => 15,
+            'planned_bets' => 2,
+        ]);
+
+        $createdBets = app(ClosingGenerator::class)->generate($closing);
+
+        // Deve criar 2 apostas, mas nenhuma delas pode ser exatamente 1 a 15
+        $this->assertSame(2, $createdBets);
+
+        $bets = Bet::where('closing_id', $closing->id)->get();
+        foreach ($bets as $bet) {
+            $this->assertNotSame(range(1, 15), $bet->numbers);
+        }
     }
 }

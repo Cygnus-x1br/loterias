@@ -67,6 +67,7 @@ class HistoricalResultService
         Cache::forget('last_contest');
         Cache::forget('last_contest_with_sum');
         Cache::forget('repeated_draws_analysis');
+        Cache::forget('historical_draw_hashes');
         Cache::forget('number_frequencies_all');
         Cache::forget('number_frequencies_10');
         Cache::forget('number_frequencies_25');

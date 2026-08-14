@@ -49,6 +49,77 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         }
     }
 
+    public function generateStatisticalBaseNumbers(int $totalBase = 18, int $repetitions = 9): void
+    {
+        $service = app(LotofacilStatisticsService::class);
+        $lastContestData = $service->getLastContestWithSum();
+        $lastDrawn = $lastContestData['result']['drawn_numbers'] ?? [];
+        $frequencies = $service->getNumberFrequencies()->toArray();
+
+        // 1. Repetidas
+        $selectedRepeated = [];
+        if (! empty($lastDrawn) && $repetitions > 0) {
+            $ranked = $lastDrawn;
+            usort($ranked, function ($a, $b) use ($frequencies) {
+                $freqA = $frequencies[$a] ?? 0;
+                $freqB = $frequencies[$b] ?? 0;
+                if ($freqA === $freqB) {
+                    return random_int(-1, 1);
+                }
+                return $freqB <=> $freqA;
+            });
+            $pool = array_slice($ranked, 0, min(count($ranked), $repetitions + 4));
+            shuffle($pool);
+            $selectedRepeated = array_slice($pool, 0, min($repetitions, count($lastDrawn)));
+        }
+
+        // 2. Novas dezenas com filtros estatísticos
+        $neededNewCount = max(0, $totalBase - count($selectedRepeated));
+        $allNumbers = range(1, 25);
+        $nonDrawnNumbers = array_values(array_diff($allNumbers, $lastDrawn));
+        $frameNumbers = [1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25];
+        $frameSet = array_flip($frameNumbers);
+
+        $scoredCandidates = [];
+        foreach ($nonDrawnNumbers as $num) {
+            $score = 0;
+            $freq = $frequencies[$num] ?? 0;
+            $score += $freq * 0.1;
+
+            $currentEvens = count(array_filter($selectedRepeated, fn ($n) => $n % 2 === 0));
+            $currentOdds = count($selectedRepeated) - $currentEvens;
+            $isEven = ($num % 2 === 0);
+
+            if ($currentEvens < $currentOdds && $isEven) {
+                $score += 15;
+            } elseif ($currentOdds <= $currentEvens && ! $isEven) {
+                $score += 15;
+            }
+
+            $currentFrame = count(array_filter($selectedRepeated, fn ($n) => isset($frameSet[$n])));
+            $isFrame = isset($frameSet[$num]);
+            $targetRatio = 10 / 15;
+            $currentRatio = count($selectedRepeated) > 0 ? $currentFrame / count($selectedRepeated) : 0.66;
+
+            if ($currentRatio < $targetRatio && $isFrame) {
+                $score += 12;
+            } elseif ($currentRatio >= $targetRatio && ! $isFrame) {
+                $score += 12;
+            }
+
+            $scoredCandidates[] = [
+                'number' => $num,
+                'score' => $score + mt_rand(0, 5),
+            ];
+        }
+
+        usort($scoredCandidates, fn ($a, $b) => $b['score'] <=> $a['score']);
+        $selectedNew = array_slice(array_column($scoredCandidates, 'number'), 0, $neededNewCount);
+
+        $generatedGroup = array_merge($selectedRepeated, $selectedNew);
+        $this->setBaseNumbersFromResult($generatedGroup);
+    }
+
     public string $guarantee = ''; // Este campo 'guarantee' é genérico, não o do reduced_parameters
 
     public string $budget = '';
@@ -662,6 +733,84 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             @enderror
 
             <div class="mt-6 flex flex-wrap justify-end gap-3">
+                {{-- Botão de Sugestão Estatística Avançada --}}
+                <div x-data="{ open: false, totalBase: 18, repetitions: 9 }" class="relative">
+                    <button
+                        type="button"
+                        @click="open = !open"
+                        wire:loading.attr="disabled"
+                        class="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        <svg class="h-4 w-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Sugerir por Análise Estatística
+                    </button>
+
+                    {{-- Popover com os parâmetros --}}
+                    <div
+                        x-show="open"
+                        @click.outside="open = false"
+                        x-transition:enter="transition ease-out duration-100"
+                        x-transition:enter-start="transform opacity-0 scale-95"
+                        x-transition:enter-end="transform opacity-100 scale-100"
+                        x-transition:leave="transition ease-in duration-75"
+                        x-transition:leave-start="transform opacity-100 scale-100"
+                        x-transition:leave-end="transform opacity-0 scale-95"
+                        class="absolute right-0 z-30 mt-2 w-80 rounded-2xl border border-emerald-100 bg-white p-5 shadow-xl"
+                        style="display: none;"
+                    >
+                        <div class="border-b border-slate-100 pb-3">
+                            <h3 class="text-sm font-bold text-slate-800">
+                                Parâmetros do Grupo Estatístico
+                            </h3>
+                            <p class="text-xs text-slate-500">
+                                Filtra repetições do último concurso, paridade, moldura/centro e sequências.
+                            </p>
+                        </div>
+
+                        <div class="mt-4 space-y-4">
+                            <div>
+                                <div class="flex justify-between text-xs font-semibold text-slate-700">
+                                    <span>Tamanho da Base:</span>
+                                    <span class="text-emerald-700 font-bold" x-text="totalBase + ' dezenas'"></span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="15"
+                                    max="25"
+                                    step="1"
+                                    x-model="totalBase"
+                                    class="mt-1.5 w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+                                >
+                            </div>
+
+                            <div>
+                                <div class="flex justify-between text-xs font-semibold text-slate-700">
+                                    <span>Repetições do Último:</span>
+                                    <span class="text-indigo-700 font-bold" x-text="repetitions + ' dezenas'"></span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    :max="Math.min(15, totalBase)"
+                                    step="1"
+                                    x-model="repetitions"
+                                    class="mt-1.5 w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                                >
+                            </div>
+
+                            <button
+                                type="button"
+                                @click="$wire.generateStatisticalBaseNumbers(Number(totalBase), Number(repetitions)); open = false;"
+                                class="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700"
+                            >
+                                Aplicar Sugestão
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <button
                     type="button"
                     wire:click="loadLastResultNumbers"

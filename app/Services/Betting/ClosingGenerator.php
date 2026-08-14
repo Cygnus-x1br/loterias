@@ -4,12 +4,14 @@ namespace App\Services\Betting;
 
 use App\Models\Bet;
 use App\Models\Closing;
+use App\Models\HistoricalResult;
 use App\Services\Betting\Generators\BalancedBetGenerator;
 use App\Services\Betting\Generators\BetGeneratorInterface;
 use App\Services\Betting\Generators\IntegralBetGenerator;
 use App\Services\Betting\Generators\RandomBetGenerator;
 use App\Services\Betting\Generators\ReducedBetGenerator;
 use App\Services\Betting\Generators\WheelBetGenerator;
+use App\Services\LotofacilStatisticsService;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use LogicException;
@@ -81,8 +83,7 @@ class ClosingGenerator
                 ]);
 
                 $createdBets = 0;
-                // A responsabilidade de gerar apostas únicas é do BetGenerator específico.
-                // Não é necessário um $uniqueBets aqui se o gerador já garante isso.
+                $historicalHashes = app(LotofacilStatisticsService::class)->getHistoricalDrawHashes();
 
                 foreach ($generator->generate($closing) as $combination) {
                     if (
@@ -92,10 +93,14 @@ class ClosingGenerator
                         break;
                     }
 
-                    // A combinação já deve vir ordenada e única do gerador.
-                    // Se houver necessidade de garantir unicidade global aqui,
-                    // um mecanismo mais robusto (ex: hash da combinação) seria necessário,
-                    // mas por enquanto confiamos no gerador.
+                    // Se a aposta tem 15 dezenas (tamanho padrão de concurso), verifica se já foi sorteada
+                    if (count($combination) === 15) {
+                        $combinationHash = HistoricalResult::generateDrawnNumbersHash($combination);
+                        if (isset($historicalHashes[$combinationHash])) {
+                            // Ignora combinação que já saiu em concursos anteriores
+                            continue;
+                        }
+                    }
 
                     Bet::create([
                         'user_id' => $closing->user_id,
