@@ -3,6 +3,7 @@
 namespace App\Services\Betting\Generators;
 
 use App\Models\Closing;
+use App\Services\LotofacilStatisticsService;
 use InvalidArgumentException;
 use LogicException;
 
@@ -78,6 +79,16 @@ class BalancedBetGenerator implements BetGeneratorInterface
             }
         }
 
+        // Validação de Dezenas Repetidas do Último Sorteio
+        if (isset($parameters['repeated_last_draw'])) {
+            $repeated = $parameters['repeated_last_draw'];
+            if (! is_array($repeated) || count($repeated) !== 2 || $repeated[0] < 0 || $repeated[1] > $betSize || $repeated[0] > $repeated[1]) {
+                throw new InvalidArgumentException(
+                    'A quantidade de dezenas repetidas do último concurso deve ser um array [min_repetidas, max_repetidas] válido.'
+                );
+            }
+        }
+
         // TODO: Adicionar validações para outros parâmetros de equilíbrio se forem implementados.
     }
 
@@ -99,6 +110,16 @@ class BalancedBetGenerator implements BetGeneratorInterface
             throw new LogicException('O grupo-base não pode estar vazio.');
         }
 
+        $lastDrawnNumbers = null;
+        if (isset($parameters['repeated_last_draw'])) {
+            if (isset($parameters['last_contest_numbers']) && is_array($parameters['last_contest_numbers'])) {
+                $lastDrawnNumbers = $parameters['last_contest_numbers'];
+            } else {
+                $lastContest = app(LotofacilStatisticsService::class)->getLastContest();
+                $lastDrawnNumbers = $lastContest ? $lastContest->drawn_numbers : null;
+            }
+        }
+
         $generatedCount = 0;
         $attempts = 0;
         $maxAttemptsPerBet = 1000; // Limite de tentativas para encontrar uma aposta válida
@@ -114,7 +135,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
                 continue;
             }
 
-            if ($this->isBalanced($currentBet, $parameters, $betSize)) {
+            if ($this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers)) {
                 yield $currentBet;
                 $uniqueBets[] = $currentBet;
                 $generatedCount++;
@@ -149,8 +170,9 @@ class BalancedBetGenerator implements BetGeneratorInterface
      *
      * @param  array<int>  $bet
      * @param  array<string, mixed>  $parameters
+     * @param  array<int>|null  $lastDrawnNumbers
      */
-    protected function isBalanced(array $bet, array $parameters, int $betSize): bool
+    protected function isBalanced(array $bet, array $parameters, int $betSize, ?array $lastDrawnNumbers = null): bool
     {
         // Equilíbrio Par/Ímpar
         if (isset($parameters['even_odd_balance'])) {
@@ -184,6 +206,15 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $fibonacciInBet = count(array_intersect($bet, self::FIBONACCI));
             [$minFibonacci, $maxFibonacci] = $parameters['fibonacci_count'];
             if ($fibonacciInBet < $minFibonacci || $fibonacciInBet > $maxFibonacci) {
+                return false;
+            }
+        }
+
+        // Repetidas do Último Sorteio
+        if (isset($parameters['repeated_last_draw']) && is_array($lastDrawnNumbers)) {
+            $repeatedCount = count(array_intersect($bet, $lastDrawnNumbers));
+            [$minRepeated, $maxRepeated] = $parameters['repeated_last_draw'];
+            if ($repeatedCount < $minRepeated || $repeatedCount > $maxRepeated) {
                 return false;
             }
         }

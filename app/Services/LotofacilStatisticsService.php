@@ -34,11 +34,11 @@ class LotofacilStatisticsService
 
             $allNumbers = [];
             foreach ($results as $drawnNumbersArray) {
-                if (! is_array($drawnNumbersArray)) {
+                if (is_string($drawnNumbersArray)) {
                     $drawnNumbersArray = json_decode($drawnNumbersArray, true);
-                    if (! is_array($drawnNumbersArray)) {
-                        continue;
-                    }
+                }
+                if (! is_array($drawnNumbersArray)) {
+                    continue;
                 }
                 foreach ($drawnNumbersArray as $number) {
                     $allNumbers[] = $number;
@@ -80,11 +80,11 @@ class LotofacilStatisticsService
 
             $allNumbers = [];
             foreach ($results as $drawnNumbersArray) {
-                if (! is_array($drawnNumbersArray)) {
+                if (is_string($drawnNumbersArray)) {
                     $drawnNumbersArray = json_decode($drawnNumbersArray, true);
-                    if (! is_array($drawnNumbersArray)) {
-                        continue;
-                    }
+                }
+                if (! is_array($drawnNumbersArray)) {
+                    continue;
                 }
                 foreach ($drawnNumbersArray as $number) {
                     $allNumbers[] = $number;
@@ -125,11 +125,11 @@ class LotofacilStatisticsService
 
             $allNumbers = [];
             foreach ($results as $drawnNumbersArray) {
-                if (! is_array($drawnNumbersArray)) {
+                if (is_string($drawnNumbersArray)) {
                     $drawnNumbersArray = json_decode($drawnNumbersArray, true);
-                    if (! is_array($drawnNumbersArray)) {
-                        continue;
-                    }
+                }
+                if (! is_array($drawnNumbersArray)) {
+                    continue;
                 }
                 foreach ($drawnNumbersArray as $number) {
                     $allNumbers[] = $number;
@@ -176,11 +176,11 @@ class LotofacilStatisticsService
 
             $pairCounts = [];
             foreach ($results as $drawnNumbersArray) {
-                if (! is_array($drawnNumbersArray)) {
+                if (is_string($drawnNumbersArray)) {
                     $drawnNumbersArray = json_decode($drawnNumbersArray, true);
-                    if (! is_array($drawnNumbersArray)) {
-                        continue;
-                    }
+                }
+                if (! is_array($drawnNumbersArray)) {
+                    continue;
                 }
                 sort($drawnNumbersArray); // Garante que o par "01-02" seja o mesmo que "02-01"
                 $count = count($drawnNumbersArray);
@@ -226,11 +226,11 @@ class LotofacilStatisticsService
 
             $trioCounts = [];
             foreach ($results as $drawnNumbersArray) {
-                if (! is_array($drawnNumbersArray)) {
+                if (is_string($drawnNumbersArray)) {
                     $drawnNumbersArray = json_decode($drawnNumbersArray, true);
-                    if (! is_array($drawnNumbersArray)) {
-                        continue;
-                    }
+                }
+                if (! is_array($drawnNumbersArray)) {
+                    continue;
                 }
                 sort($drawnNumbersArray);
                 $count = count($drawnNumbersArray);
@@ -258,13 +258,9 @@ class LotofacilStatisticsService
      */
     public function getLastContest(): ?HistoricalResult
     {
-        $data = Cache::remember('last_contest', now()->addMinutes(30), function () {
-            $lastContest = HistoricalResult::orderByDesc('contest_number')->first();
-
-            return $lastContest ? $lastContest->toArray() : null;
+        return Cache::remember('last_contest', now()->addMinutes(30), function () {
+            return HistoricalResult::orderByDesc('contest_number')->first();
         });
-
-        return $data ? (new HistoricalResult)->newFromBuilder($data) : null;
     }
 
     /**

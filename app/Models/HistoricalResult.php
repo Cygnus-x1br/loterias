@@ -26,10 +26,13 @@ class HistoricalResult extends Model
         'payout_11_hits',
     ];
 
-    protected $casts = [
-        'draw_date' => 'date',
-        'drawn_numbers' => 'array',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'draw_date' => 'date',
+            'drawn_numbers' => 'array',
+        ];
+    }
 
     /**
      * Gera o hash das dezenas ordenadas.

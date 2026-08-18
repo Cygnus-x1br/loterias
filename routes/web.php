@@ -41,6 +41,8 @@ Route::middleware('auth')
             ->name('create');
         Volt::route('/{closing}', 'pages.closings.show')
             ->name('show');
+        Volt::route('/{closing}/editar', 'pages.closings.edit')
+            ->name('edit');
     });
 
 Route::middleware('auth')

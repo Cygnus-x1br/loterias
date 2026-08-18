@@ -4,6 +4,7 @@ namespace Tests\Feature\Services\Betting;
 
 use App\Models\Bet;
 use App\Models\Closing;
+use App\Models\HistoricalResult;
 use App\Models\User;
 use App\Services\Betting\ClosingGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -215,6 +216,75 @@ class BalancedBetGeneratorTest extends TestCase
 
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('A contagem de Fibonacci deve ser um array [min_fibonacci, max_fibonacci] válido.');
+
+        try {
+            app(ClosingGenerator::class)->generate($closing);
+        } finally {
+            $this->assertDatabaseHas('closings', [
+                'id' => $closing->id,
+                'status' => 'failed',
+            ]);
+        }
+    }
+
+    public function test_generates_balanced_bets_with_repeated_last_draw_filter(): void
+    {
+        $user = User::factory()->create();
+
+        // Cria resultado histórico do último concurso
+        HistoricalResult::create([
+            'contest_number' => 3000,
+            'draw_date' => now()->toDateString(),
+            'drawn_numbers' => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            'drawn_numbers_hash' => HistoricalResult::generateDrawnNumbersHash(range(1, 15)),
+        ]);
+
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'name' => 'Fechamento equilibrado com repetidas',
+            'method' => 'balanced',
+            'status' => 'draft',
+            'base_numbers' => range(1, 25),
+            'bet_size' => 15,
+            'planned_bets' => 5,
+            'parameters' => [
+                'repeated_last_draw' => [8, 10], // Exatamente 8 a 10 repetidas do concurso anterior
+            ],
+        ]);
+
+        $createdBets = app(ClosingGenerator::class)->generate($closing);
+
+        $this->assertSame(5, $createdBets);
+
+        $bets = Bet::query()->where('closing_id', $closing->id)->get();
+        $this->assertCount(5, $bets);
+
+        $lastDrawn = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        foreach ($bets as $bet) {
+            $repeatedCount = count(array_intersect($bet->numbers, $lastDrawn));
+            $this->assertGreaterThanOrEqual(8, $repeatedCount);
+            $this->assertLessThanOrEqual(10, $repeatedCount);
+        }
+    }
+
+    public function test_rejects_invalid_repeated_last_draw_parameters(): void
+    {
+        $user = User::factory()->create();
+
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'method' => 'balanced',
+            'status' => 'draft',
+            'base_numbers' => range(1, 25),
+            'bet_size' => 15,
+            'planned_bets' => 1,
+            'parameters' => [
+                'repeated_last_draw' => [12, 5], // min > max
+            ],
+        ]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('A quantidade de dezenas repetidas do último concurso deve ser um array [min_repetidas, max_repetidas] válido.');
 
         try {
             app(ClosingGenerator::class)->generate($closing);

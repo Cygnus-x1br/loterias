@@ -509,7 +509,7 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                 wire:key="closing-{{ $closing->id }}"
                                 class="transition hover:bg-slate-50"
                             >
-                                <td class="whitespace-nowrap px-6 py-4">
+                                <td class="px-6 py-4">
                                     <div class="font-semibold text-slate-900">
                                         {{ $closing->name }}
                                     </div>
@@ -520,9 +520,9 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                 </td>
 
                                 <td class="px-6 py-4">
-                                    <div class="flex max-w-xs flex-wrap gap-1"> {{-- Ajustado aqui --}}
+                                    <div class="flex max-w-[200px] flex-wrap gap-1">
                                         @foreach ($closing->base_numbers ?? [] as $number)
-                                            <span class="inline-flex h-6 w-6 items-center justify-center rounded-md bg-indigo-50 text-xs font-bold text-indigo-700"> {{-- Ajustado aqui --}}
+                                            <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-[11px] font-bold text-indigo-700">
                                                 {{ str_pad($number, 2, '0', STR_PAD_LEFT) }}
                                             </span>
                                         @endforeach
@@ -551,11 +551,14 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                 </td>
 
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-500">
-                                    {{ $closing->created_at?->format('d/m/Y H:i') }}
+                                    <div class="flex flex-col">
+                                        <span class="font-medium text-slate-700">{{ $closing->created_at?->format('d/m/Y') }}</span>
+                                        <span class="text-xs text-slate-400">{{ $closing->created_at?->format('H:i') }}</span>
+                                    </div>
                                 </td>
 
                                 <td class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
-                                    <div class="flex justify-end gap-2">
+                                    <div class="flex flex-col items-end gap-1.5">
                                         @if ($this->canGenerate($closing))
                                             <button
                                                 type="button"
@@ -563,10 +566,10 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                                 wire:confirm="Tem certeza que deseja gerar as apostas deste fechamento?"
                                                 wire:loading.attr="disabled"
                                                 wire:target="generate({{ $closing->id }})"
-                                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
                                             >
                                                 <svg
-                                                    class="h-4 w-4"
+                                                    class="h-3.5 w-3.5"
                                                     fill="none"
                                                     stroke="currentColor"
                                                     viewBox="0 0 24 24"
@@ -583,12 +586,35 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                             </button>
                                         @endif
 
+                                        @if ($closing->status === 'draft' || $closing->status === 'failed')
+                                            <a
+                                                href="{{ route('closings.edit', $closing) }}"
+                                                class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-amber-700 transition hover:bg-amber-50"
+                                            >
+                                                <svg
+                                                    class="h-3.5 w-3.5"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    viewBox="0 0 24 24"
+                                                >
+                                                    <path
+                                                        stroke-linecap="round"
+                                                        stroke-linejoin="round"
+                                                        stroke-width="2"
+                                                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                                    />
+                                                </svg>
+
+                                                Editar
+                                            </a>
+                                        @endif
+
                                         <a
                                             href="{{ route('closings.show', $closing) }}"
-                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
+                                            class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
                                         >
                                             <svg
-                                                class="h-4 w-4"
+                                                class="h-3.5 w-3.5"
                                                 fill="none"
                                                 stroke="currentColor"
                                                 viewBox="0 0 24 24"
@@ -614,10 +640,10 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                         <button
                                             type="button"
                                             wire:click="confirmClosingDeletion({{ $closing->id }})"
-                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                                            class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
                                         >
                                             <svg
-                                                class="h-4 w-4"
+                                                class="h-3.5 w-3.5"
                                                 fill="none"
                                                 stroke="currentColor"
                                                 viewBox="0 0 24 24"
@@ -676,12 +702,12 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
 
                         <div>
                             <p class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">
-                                Grupo-base
+                                Grupo-base ({{ count($closing->base_numbers ?? []) }} dezenas)
                             </p>
 
-                            <div class="flex flex-wrap gap-1"> {{-- Ajustado aqui --}}
+                            <div class="flex flex-wrap gap-1.5">
                                 @foreach ($closing->base_numbers ?? [] as $number)
-                                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700"> {{-- Ajustado aqui --}}
+                                    <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700">
                                         {{ str_pad($number, 2, '0', STR_PAD_LEFT) }}
                                     </span>
                                 @endforeach
@@ -697,7 +723,7 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                             </div>
                         </div>
 
-                        <div class="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+                        <div class="flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
                             @if ($this->canGenerate($closing))
                                 <button
                                     type="button"
@@ -705,7 +731,7 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                     wire:confirm="Tem certeza que deseja gerar as apostas deste fechamento?"
                                     wire:loading.attr="disabled"
                                     wire:target="generate({{ $closing->id }})"
-                                    class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                     <svg
                                         class="h-4 w-4"
@@ -724,9 +750,31 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                     Gerar apostas
                                 </button>
                             @endif
+                            @if ($closing->status === 'draft' || $closing->status === 'failed')
+                                <a
+                                    href="{{ route('closings.edit', $closing) }}"
+                                    class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
+                                >
+                                    <svg
+                                        class="h-4 w-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                        />
+                                    </svg>
+
+                                    Editar
+                                </a>
+                            @endif
                             <a
                                 href="{{ route('closings.show', $closing) }}"
-                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
                             >
                                 <svg
                                     class="h-4 w-4"
@@ -751,10 +799,11 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
 
                                 Visualizar
                             </a>
+
                             <button
                                 type="button"
                                 wire:click="confirmClosingDeletion({{ $closing->id }})"
-                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-100"
                             >
                                 <svg
                                     class="h-4 w-4"

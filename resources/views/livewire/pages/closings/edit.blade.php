@@ -8,11 +8,13 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Component
+new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Component
 {
+    public Closing $closing;
+
     public string $name = '';
 
-    public string $method = 'reduced'; // Valor inicial pode ser 'reduced' para testar
+    public string $method = 'reduced';
 
     public array $base_numbers = [];
 
@@ -20,13 +22,100 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
     public int $planned_bets = 10;
 
-    public function mount(): void
+    public string $guarantee = '';
+
+    public string $budget = '';
+
+    public string $notes = '';
+
+    public bool $processing = false;
+
+    // Parâmetros para geração equilibrada
+    public ?int $min_even = null;
+    public ?int $max_even = null;
+    public ?int $min_sum = null;
+    public ?int $max_sum = null;
+    public ?int $min_primes = null;
+    public ?int $max_primes = null;
+    public ?int $min_fibonacci = null;
+    public ?int $max_fibonacci = null;
+    public ?int $min_repeated_last_draw = null;
+    public ?int $max_repeated_last_draw = null;
+
+    // Parâmetros para sistema de roda
+    public array $fixed_numbers = [];
+    public array $variable_numbers = [];
+    public ?int $wheel_size = null;
+
+    // Parâmetros para fechamento reduzido
+    public ?int $guarantee_hits = null;
+    public ?int $guarantee_points = null;
+
+    public function mount(Closing $closing): void
     {
-        $numbersQuery = request()->query('numbers');
-        if ($numbersQuery && is_string($numbersQuery)) {
-            $parsedNumbers = array_filter(array_map('intval', explode(',', $numbersQuery)), fn ($n) => $n >= 1 && $n <= 25);
-            if (! empty($parsedNumbers)) {
-                $this->setBaseNumbersFromResult($parsedNumbers);
+        if ($closing->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        if ($closing->status !== 'draft' && $closing->status !== 'failed') {
+            session()->flash('error', 'Fechamentos já gerados ou concluídos não podem ter seus parâmetros alterados.');
+            $this->redirectRoute('closings.show', $closing);
+            return;
+        }
+
+        $this->closing = $closing;
+        $this->name = (string) $closing->name;
+        $this->method = (string) $closing->method;
+        $this->base_numbers = is_array($closing->base_numbers) ? array_map('intval', $closing->base_numbers) : [];
+        sort($this->base_numbers);
+        $this->bet_size = (int) $closing->bet_size;
+        $this->planned_bets = (int) $closing->planned_bets;
+        $this->guarantee = $closing->guarantee !== null ? (string) $closing->guarantee : '';
+        $this->budget = $closing->budget !== null ? (string) $closing->budget : '';
+        $this->notes = (string) ($closing->notes ?? '');
+
+        // Carregar parâmetros salvos
+        $params = is_array($closing->parameters) ? $closing->parameters : [];
+
+        if ($this->method === 'balanced') {
+            if (isset($params['even_odd_balance']) && is_array($params['even_odd_balance'])) {
+                $this->min_even = isset($params['even_odd_balance'][0]) ? (int) $params['even_odd_balance'][0] : null;
+                $this->max_even = isset($params['even_odd_balance'][1]) ? (int) $params['even_odd_balance'][1] : null;
+            }
+            if (isset($params['sum_range']) && is_array($params['sum_range'])) {
+                $this->min_sum = isset($params['sum_range'][0]) ? (int) $params['sum_range'][0] : null;
+                $this->max_sum = isset($params['sum_range'][1]) ? (int) $params['sum_range'][1] : null;
+            }
+            if (isset($params['primes_count']) && is_array($params['primes_count'])) {
+                $this->min_primes = isset($params['primes_count'][0]) ? (int) $params['primes_count'][0] : null;
+                $this->max_primes = isset($params['primes_count'][1]) ? (int) $params['primes_count'][1] : null;
+            }
+            if (isset($params['fibonacci_count']) && is_array($params['fibonacci_count'])) {
+                $this->min_fibonacci = isset($params['fibonacci_count'][0]) ? (int) $params['fibonacci_count'][0] : null;
+                $this->max_fibonacci = isset($params['fibonacci_count'][1]) ? (int) $params['fibonacci_count'][1] : null;
+            }
+            if (isset($params['repeated_last_draw']) && is_array($params['repeated_last_draw'])) {
+                $this->min_repeated_last_draw = isset($params['repeated_last_draw'][0]) ? (int) $params['repeated_last_draw'][0] : null;
+                $this->max_repeated_last_draw = isset($params['repeated_last_draw'][1]) ? (int) $params['repeated_last_draw'][1] : null;
+            }
+        } elseif ($this->method === 'wheel') {
+            if (isset($params['fixed_numbers']) && is_array($params['fixed_numbers'])) {
+                $this->fixed_numbers = array_map('intval', $params['fixed_numbers']);
+                sort($this->fixed_numbers);
+            }
+            if (isset($params['variable_numbers']) && is_array($params['variable_numbers'])) {
+                $this->variable_numbers = array_map('intval', $params['variable_numbers']);
+                sort($this->variable_numbers);
+            }
+            if (isset($params['wheel_size'])) {
+                $this->wheel_size = (int) $params['wheel_size'];
+            }
+        } elseif ($this->method === 'reduced') {
+            if (isset($params['reduced_parameters']['guarantee_hits'])) {
+                $this->guarantee_hits = (int) $params['reduced_parameters']['guarantee_hits'];
+            }
+            if (isset($params['reduced_parameters']['guarantee_points'])) {
+                $this->guarantee_points = (int) $params['reduced_parameters']['guarantee_points'];
             }
         }
     }
@@ -120,35 +209,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         $this->setBaseNumbersFromResult($generatedGroup);
     }
 
-    public string $guarantee = ''; // Este campo 'guarantee' é genérico, não o do reduced_parameters
-
-    public string $budget = '';
-
-    public string $notes = '';
-
-    public bool $processing = false;
-
-    // Parâmetros para geração equilibrada
-    public ?int $min_even = null;
-    public ?int $max_even = null;
-    public ?int $min_sum = null;
-    public ?int $max_sum = null;
-    public ?int $min_primes = null;
-    public ?int $max_primes = null;
-    public ?int $min_fibonacci = null;
-    public ?int $max_fibonacci = null;
-    public ?int $min_repeated_last_draw = null;
-    public ?int $max_repeated_last_draw = null;
-
-    // Novos parâmetros para sistema de roda
-    public array $fixed_numbers = [];
-    public array $variable_numbers = [];
-    public ?int $wheel_size = null;
-
-    // NOVOS PARÂMETROS PARA FECHAMENTO REDUZIDO
-    public ?int $guarantee_hits = null;    // Acertos na base para garantia
-    public ?int $guarantee_points = null;  // Pontos garantidos
-
     public function rules(): array
     {
         $rules = [
@@ -228,50 +288,50 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 'required',
                 'array',
                 'min:1',
-                'max:' . ($this->bet_size - 1), // Pelo menos uma variável
+                'max:' . ($this->bet_size - 1),
             ];
             $rules['fixed_numbers.*'] = [
                 'required',
                 'integer',
                 'distinct',
                 'between:1,25',
-                Rule::in($this->base_numbers), // Dezenas fixas devem estar no grupo-base
+                Rule::in($this->base_numbers),
             ];
             $rules['variable_numbers'] = [
                 'required',
                 'array',
                 'min:1',
-                'max:' . (count($this->base_numbers) - count($this->fixed_numbers)), // Não pode exceder o restante do grupo-base
+                'max:' . (count($this->base_numbers) - count($this->fixed_numbers)),
             ];
             $rules['variable_numbers.*'] = [
                 'required',
                 'integer',
                 'distinct',
                 'between:1,25',
-                Rule::in($this->base_numbers), // Dezenas variáveis devem estar no grupo-base
-                Rule::notIn($this->fixed_numbers), // Não pode estar nas fixas
+                Rule::in($this->base_numbers),
+                Rule::notIn($this->fixed_numbers),
             ];
             $rules['wheel_size'] = [
                 'required',
                 'integer',
                 'min:1',
                 'max:' . count($this->variable_numbers),
-                'size:' . ($this->bet_size - count($this->fixed_numbers)), // fixed + wheel_size = bet_size
+                'size:' . ($this->bet_size - count($this->fixed_numbers)),
             ];
         }
 
-        // NOVAS REGRAS CONDICIONAIS PARA O MÉTODO 'REDUCED'
+        // Regras condicionais para o método 'reduced'
         if ($this->method === 'reduced') {
             $rules['guarantee_hits'] = [
                 'required',
                 'integer',
-                'min:' . $this->bet_size, // Deve ser pelo menos o tamanho da aposta
-                'max:' . count($this->base_numbers), // Não pode exceder o grupo-base
+                'min:' . $this->bet_size,
+                'max:' . count($this->base_numbers),
             ];
             $rules['guarantee_points'] = [
                 'required',
                 'integer',
-                'between:11,' . ($this->bet_size - 1), // Pontos garantidos entre 11 e (tamanho da aposta - 1)
+                'between:11,' . ($this->bet_size - 1),
             ];
         }
 
@@ -305,7 +365,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
             'notes.max' => 'As observações não podem ultrapassar 2.000 caracteres.',
 
-            // Mensagens para os parâmetros de equilíbrio
             'min_even.min' => 'O mínimo de pares não pode ser negativo.',
             'min_even.max' => 'O mínimo de pares não pode exceder 15.',
             'max_even.min' => 'O máximo de pares não pode ser negativo.',
@@ -330,7 +389,12 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             'max_fibonacci.max' => 'O máximo de Fibonacci não pode exceder 7.',
             'max_fibonacci.gte' => 'O máximo de Fibonacci deve ser maior ou igual ao mínimo.',
 
-            // Mensagens para os parâmetros do sistema de roda
+            'min_repeated_last_draw.min' => 'O mínimo de repetidas não pode ser negativo.',
+            'min_repeated_last_draw.max' => 'O mínimo de repetidas não pode exceder 15.',
+            'max_repeated_last_draw.min' => 'O máximo de repetidas não pode ser negativo.',
+            'max_repeated_last_draw.max' => 'O máximo de repetidas não pode exceder 15.',
+            'max_repeated_last_draw.gte' => 'O máximo de repetidas deve ser maior ou igual ao mínimo.',
+
             'fixed_numbers.required' => 'Selecione as dezenas fixas.',
             'fixed_numbers.array' => 'As dezenas fixas devem ser uma lista.',
             'fixed_numbers.min' => 'Selecione pelo menos uma dezena fixa.',
@@ -356,7 +420,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             'wheel_size.max' => 'O tamanho da roda não pode exceder o número de dezenas variáveis.',
             'wheel_size.size' => 'A soma das dezenas fixas e o tamanho da roda deve ser igual ao tamanho da aposta.',
 
-            // NOVAS MENSAGENS PARA O MÉTODO 'REDUCED'
             'guarantee_hits.required' => 'Informe o número de acertos na base para garantia.',
             'guarantee_hits.integer' => 'O número de acertos na base para garantia deve ser um número inteiro.',
             'guarantee_hits.min' => 'O número de acertos na base para garantia deve ser pelo menos :min.',
@@ -382,7 +445,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 )
             );
 
-            // Remove dezenas fixas/variáveis se forem desmarcadas do grupo-base
             $this->fixed_numbers = array_values(array_filter($this->fixed_numbers, fn($n) => $n !== $number));
             $this->variable_numbers = array_values(array_filter($this->variable_numbers, fn($n) => $n !== $number));
 
@@ -413,7 +475,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         sort($this->base_numbers);
     }
 
-    // Métodos para toggle de dezenas fixas/variáveis
     public function toggleFixedNumber(int $number): void
     {
         if (!in_array($number, $this->base_numbers, true)) {
@@ -423,7 +484,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
         if (in_array($number, $this->fixed_numbers, true)) {
             $this->fixed_numbers = array_values(array_filter($this->fixed_numbers, fn($n) => $n !== $number));
-        } elseif (!in_array($number, $this->variable_numbers, true)) { // Não pode ser fixa e variável ao mesmo tempo
+        } elseif (!in_array($number, $this->variable_numbers, true)) {
             $this->fixed_numbers[] = $number;
             sort($this->fixed_numbers);
         }
@@ -440,7 +501,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
         if (in_array($number, $this->variable_numbers, true)) {
             $this->variable_numbers = array_values(array_filter($this->variable_numbers, fn($n) => $n !== $number));
-        } elseif (!in_array($number, $this->fixed_numbers, true)) { // Não pode ser fixa e variável ao mesmo tempo
+        } elseif (!in_array($number, $this->fixed_numbers, true)) {
             $this->variable_numbers[] = $number;
             sort($this->variable_numbers);
         }
@@ -455,15 +516,15 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         $this->fixed_numbers = [];
         $this->variable_numbers = [];
         $this->wheel_size = null;
-        $this->guarantee_hits = null; // Limpar também os novos campos
-        $this->guarantee_points = null; // Limpar também os novos campos
+        $this->guarantee_hits = null;
+        $this->guarantee_points = null;
 
         $this->resetValidation('base_numbers');
         $this->resetValidation('fixed_numbers');
         $this->resetValidation('variable_numbers');
         $this->resetValidation('wheel_size');
-        $this->resetValidation('guarantee_hits'); // Resetar validação
-        $this->resetValidation('guarantee_points'); // Resetar validação
+        $this->resetValidation('guarantee_hits');
+        $this->resetValidation('guarantee_points');
     }
 
     public function selectRandomNumbers(): void
@@ -480,19 +541,25 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         $this->fixed_numbers = [];
         $this->variable_numbers = [];
         $this->wheel_size = null;
-        $this->guarantee_hits = null; // Limpar também os novos campos
-        $this->guarantee_points = null; // Limpar também os novos campos
+        $this->guarantee_hits = null;
+        $this->guarantee_points = null;
 
         $this->resetValidation('base_numbers');
         $this->resetValidation('fixed_numbers');
         $this->resetValidation('variable_numbers');
         $this->resetValidation('wheel_size');
-        $this->resetValidation('guarantee_hits'); // Resetar validação
-        $this->resetValidation('guarantee_points'); // Resetar validação
+        $this->resetValidation('guarantee_hits');
+        $this->resetValidation('guarantee_points');
     }
 
     public function save(): void
     {
+        if ($this->closing->status !== 'draft' && $this->closing->status !== 'failed') {
+            session()->flash('error', 'Fechamentos já gerados ou concluídos não podem ter seus parâmetros alterados.');
+            $this->redirectRoute('closings.show', $this->closing);
+            return;
+        }
+
         $this->processing = true;
 
         try {
@@ -507,9 +574,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 return;
             }
 
-            // Validações manuais para o método 'wheel'
             if ($this->method === 'wheel') {
-                // 1. Dezenas fixas devem estar no grupo-base
                 foreach ($this->fixed_numbers as $number) {
                     if (!in_array($number, $this->base_numbers, true)) {
                         $this->addError('fixed_numbers', "A dezena fixa {$number} não está no grupo-base.");
@@ -517,7 +582,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                     }
                 }
 
-                // 2. Dezenas variáveis devem estar no grupo-base
                 foreach ($this->variable_numbers as $number) {
                     if (!in_array($number, $this->base_numbers, true)) {
                         $this->addError('variable_numbers', "A dezena variável {$number} não está no grupo-base.");
@@ -525,7 +589,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                     }
                 }
 
-                // 3. Dezenas variáveis não podem estar nas dezenas fixas
                 foreach ($this->variable_numbers as $number) {
                     if (in_array($number, $this->fixed_numbers, true)) {
                         $this->addError('variable_numbers', "A dezena variável {$number} também está nas dezenas fixas.");
@@ -534,7 +597,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 }
             }
 
-            // Validações manuais para o método 'reduced'
             if ($this->method === 'reduced') {
                 if ($this->guarantee_hits !== null && $this->guarantee_points !== null) {
                     if ($this->guarantee_points >= $this->bet_size) {
@@ -560,7 +622,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                     }
                 }
             }
-
 
             $parameters = null;
             if ($this->method === 'balanced') {
@@ -597,7 +658,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 if (empty($parameters)) {
                     $parameters = null;
                 }
-            } elseif ($this->method === 'reduced') { // NOVO: Lógica para salvar parâmetros do fechamento reduzido
+            } elseif ($this->method === 'reduced') {
                 $parameters = [];
                 if ($this->guarantee_hits !== null) {
                     $parameters['reduced_parameters']['guarantee_hits'] = (int) $this->guarantee_hits;
@@ -610,8 +671,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 }
             }
 
-            $closing = Closing::create([
-                'user_id' => Auth::id(),
+            $this->closing->update([
                 'name' => $this->name,
                 'method' => $this->method,
                 'base_numbers' => $this->base_numbers,
@@ -624,7 +684,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                     ? $this->budget
                     : null,
                 'parameters' => $parameters,
-                'status' => 'draft',
                 'notes' => $this->notes !== ''
                     ? $this->notes
                     : null,
@@ -632,10 +691,10 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
             session()->flash(
                 'success',
-                "Fechamento {$closing->id} criado como rascunho."
+                'Fechamento atualizado com sucesso.'
             );
 
-            $this->redirectRoute('closings.index');
+            $this->redirectRoute('closings.show', $this->closing);
         } finally {
             $this->processing = false;
         }
@@ -664,22 +723,31 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
             <span>/</span>
 
+            <a
+                href="{{ route('closings.show', $closing) }}"
+                class="transition hover:text-indigo-600"
+            >
+                Detalhes
+            </a>
+
+            <span>/</span>
+
             <span class="font-medium text-slate-700">
-                Novo fechamento
+                Editar fechamento
             </span>
         </div>
 
         <div class="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
             <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
-            Configuração de fechamento
+            Edição de Parâmetros
         </div>
 
         <h1 class="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">
-            Novo fechamento
+            Editar fechamento
         </h1>
 
         <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
-            Defina o grupo-base e os parâmetros que serão utilizados em um futuro fechamento.
+            Altere o grupo-base e os parâmetros do fechamento em rascunho antes da geração das apostas.
         </p>
     </section>
 
@@ -926,7 +994,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                         <option value="random">Geração aleatória</option>
                         <option value="balanced">Geração equilibrada</option>
                         <option value="wheel">Sistema de roda</option>
-                        <option value="reduced">Fechamento reduzido</option> {{-- Removido "(em breve)" --}}
+                        <option value="reduced">Fechamento reduzido</option>
                     </select>
 
                     @error('method')
@@ -1122,7 +1190,6 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                                     class="block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                                 >
                                 <input
-                                    id="max_fibonacci"
                                     type="number"
                                     wire:model="max_fibonacci"
                                     placeholder="Máx"
@@ -1283,7 +1350,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                     </div>
                 @endif
 
-                {{-- NOVOS CAMPOS PARA O MÉTODO REDUCED --}}
+                {{-- Campos para o método Reduced --}}
                 @if ($method === 'reduced')
                     <div class="space-y-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
                         <h3 class="text-base font-bold text-indigo-700">
@@ -1421,15 +1488,36 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         </aside>
     </div>
 
-    <div class="flex justify-end">
+    {{-- Ações de Submissão --}}
+    <div class="flex flex-col-reverse justify-end gap-3 sm:flex-row">
+        <a
+            href="{{ route('closings.show', $closing) }}"
+            class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+        >
+            Cancelar
+        </a>
+
         <button
             type="submit"
             wire:click="save"
             wire:loading.attr="disabled"
             wire:target="save"
-            class="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            class="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
             <svg
+                wire:loading
+                wire:target="save"
+                class="h-4 w-4 animate-spin"
+                fill="none"
+                viewBox="0 0 24 24"
+            >
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+
+            <svg
+                wire:loading.remove
+                wire:target="save"
                 class="h-4 w-4"
                 fill="none"
                 stroke="currentColor"
@@ -1444,11 +1532,11 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             </svg>
 
             <span wire:loading.remove wire:target="save">
-                Salvar fechamento
+                Salvar Alterações
             </span>
 
             <span wire:loading wire:target="save">
-                Salvando...
+                Salvando alterações...
             </span>
         </button>
     </div>
