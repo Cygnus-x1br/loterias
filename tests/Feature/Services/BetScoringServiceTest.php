@@ -56,6 +56,10 @@ class BetScoringServiceTest extends TestCase
                 $mock->shouldReceive('getMostFrequentConsecutiveQuads')->andReturn(
                     collect(['01-02-03-04' => 10])
                 );
+
+                $mock->shouldReceive('getNumberTemperatureClassification')->andReturn(
+                    array_fill(1, 25, ['temperature' => 'neutral', 'recent_count' => 5, 'total_count' => 50, 'delay' => 1])
+                );
             })
         );
 

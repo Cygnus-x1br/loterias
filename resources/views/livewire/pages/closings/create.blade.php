@@ -640,6 +640,18 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             $this->processing = false;
         }
     }
+
+    public function with(): array
+    {
+        $service = app(LotofacilStatisticsService::class);
+        $temperatures = $service->getNumberTemperatureClassification(20);
+        $lastContestStats = $service->getLastContestFullStatistics();
+
+        return [
+            'numberTemperatures' => $temperatures,
+            'lastContestStats' => $lastContestStats,
+        ];
+    }
 };
 ?>
 
@@ -712,25 +724,141 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 </div>
             </div>
 
+            {{-- Painel de Estatísticas do Último Concurso para Consulta --}}
+            @if ($lastContestStats)
+                <div class="mt-4 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50/70 via-slate-50 to-emerald-50/50 p-3.5 text-xs text-slate-700">
+                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100/70 pb-2 mb-2.5">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-0.5 text-[11px] font-bold text-white shadow-sm">
+                                Concurso {{ $lastContestStats['contest_number'] }}
+                            </span>
+                            @if ($lastContestStats['draw_date'])
+                                <span class="text-slate-500 font-medium">({{ $lastContestStats['draw_date'] }})</span>
+                            @endif
+                        </div>
+
+                        <span class="text-[11px] font-semibold text-slate-500">
+                            Referência para planejamento do fechamento
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
+                        {{-- Soma --}}
+                        <div class="rounded-lg bg-white/90 p-2 border border-slate-200/60 shadow-2xs">
+                            <span class="text-[10px] font-medium text-slate-400 block uppercase tracking-wider">Soma Total</span>
+                            <span class="text-sm font-bold text-slate-900">{{ $lastContestStats['sum'] }}</span>
+                            <span class="text-[10px] text-slate-500 block">pontos</span>
+                        </div>
+
+                        {{-- Par / Ímpar --}}
+                        <div class="rounded-lg bg-white/90 p-2 border border-slate-200/60 shadow-2xs">
+                            <span class="text-[10px] font-medium text-slate-400 block uppercase tracking-wider">Par / Ímpar</span>
+                            <span class="text-sm font-bold text-slate-900">{{ $lastContestStats['evens'] }}P / {{ $lastContestStats['odds'] }}I</span>
+                            <span class="text-[10px] text-slate-500 block">proporção</span>
+                        </div>
+
+                        {{-- Repetições do Anterior --}}
+                        <div class="rounded-lg bg-white/90 p-2 border border-slate-200/60 shadow-2xs">
+                            <span class="text-[10px] font-medium text-slate-400 block uppercase tracking-wider">Repetições</span>
+                            <span class="text-sm font-bold text-indigo-700">
+                                {{ $lastContestStats['repeated_from_previous'] !== null ? $lastContestStats['repeated_from_previous'].' dezenas' : 'N/A' }}
+                            </span>
+                            <span class="text-[10px] text-slate-500 block">do conc. anterior</span>
+                        </div>
+
+                        {{-- Primos --}}
+                        <div class="rounded-lg bg-white/90 p-2 border border-slate-200/60 shadow-2xs">
+                            <span class="text-[10px] font-medium text-slate-400 block uppercase tracking-wider">Primos</span>
+                            <span class="text-sm font-bold text-slate-900">{{ $lastContestStats['primes'] }}</span>
+                            <span class="text-[10px] text-slate-500 block">de 9 possíveis</span>
+                        </div>
+
+                        {{-- Fibonacci --}}
+                        <div class="rounded-lg bg-white/90 p-2 border border-slate-200/60 shadow-2xs">
+                            <span class="text-[10px] font-medium text-slate-400 block uppercase tracking-wider">Fibonacci</span>
+                            <span class="text-sm font-bold text-slate-900">{{ $lastContestStats['fibonacci'] }}</span>
+                            <span class="text-[10px] text-slate-500 block">de 7 possíveis</span>
+                        </div>
+
+                        {{-- Moldura / Centro --}}
+                        <div class="rounded-lg bg-white/90 p-2 border border-slate-200/60 shadow-2xs">
+                            <span class="text-[10px] font-medium text-slate-400 block uppercase tracking-wider">Moldura / Centro</span>
+                            <span class="text-sm font-bold text-slate-900">{{ $lastContestStats['frame'] }}M / {{ $lastContestStats['center'] }}C</span>
+                            <span class="text-[10px] text-slate-500 block">distribuição</span>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
             <div class="mt-6 grid grid-cols-5 gap-2 sm:grid-cols-8 md:grid-cols-10">
                 @foreach (range(1, 25) as $number)
                     @php
                         $selected = in_array($number, $base_numbers, true);
+                        $tempInfo = $numberTemperatures[$number] ?? ['temperature' => 'neutral', 'recent_count' => 0, 'delay' => 0];
+                        $temp = $tempInfo['temperature'];
                     @endphp
 
                     <button
                         type="button"
                         wire:key="closing-number-{{ $number }}"
                         wire:click="toggleNumber({{ $number }})"
+                        title="Dezena {{ sprintf('%02d', $number) }} - {{ $temp === 'hot' ? 'Quente (Saiu '.$tempInfo['recent_count'].'x nos ultimos 20 concursos)' : ($temp === 'cold' ? 'Fria (Atrasada ou poucas saídas recentes)' : 'Neutra / Media') }}"
                         @class([
-                            'flex aspect-square items-center justify-center rounded-xl border text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                            'relative flex aspect-square flex-col items-center justify-center rounded-xl border text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
                             'border-indigo-600 bg-indigo-600 text-white shadow-md shadow-indigo-600/20' => $selected,
                             'border-slate-200 bg-slate-50 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700' => ! $selected,
                         ])
                     >
-                        {{ str_pad($number, 2, '0', STR_PAD_LEFT) }}
+                        {{-- Indicador visual sutil de temperatura --}}
+                        <span class="absolute top-1 right-1.5 flex h-2 w-2">
+                            @if ($temp === 'hot')
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500" title="Dezena Quente"></span>
+                            @elseif ($temp === 'cold')
+                                <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-400" title="Dezena Fria"></span>
+                            @endif
+                        </span>
+
+                        <span>{{ str_pad($number, 2, '0', STR_PAD_LEFT) }}</span>
                     </button>
                 @endforeach
+            </div>
+
+            {{-- Painel de Relevância / Temperatura do Grupo Base Selecionado --}}
+            @php
+                $hotCount = 0;
+                $neutralCount = 0;
+                $coldCount = 0;
+                foreach ($base_numbers as $num) {
+                    $t = $numberTemperatures[$num]['temperature'] ?? 'neutral';
+                    if ($t === 'hot') $hotCount++;
+                    elseif ($t === 'cold') $coldCount++;
+                    else $neutralCount++;
+                }
+            @endphp
+
+            <div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs">
+                <div class="flex items-center gap-1.5 font-medium text-slate-600">
+                    <span class="font-semibold text-slate-800">Composição do Grupo:</span>
+                    <span>{{ count($base_numbers) }} dezenas selecionadas</span>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-1.5 rounded-lg bg-amber-100/70 px-2.5 py-1 font-semibold text-amber-800 border border-amber-200/50">
+                        <span class="h-2 w-2 rounded-full bg-amber-500"></span>
+                        <span>{{ $hotCount }} Quentes</span>
+                    </div>
+
+                    <div class="flex items-center gap-1.5 rounded-lg bg-slate-200/60 px-2.5 py-1 font-semibold text-slate-700 border border-slate-300/50">
+                        <span class="h-2 w-2 rounded-full bg-slate-400"></span>
+                        <span>{{ $neutralCount }} Médias</span>
+                    </div>
+
+                    <div class="flex items-center gap-1.5 rounded-lg bg-sky-100/70 px-2.5 py-1 font-semibold text-sky-800 border border-sky-200/50">
+                        <span class="h-2 w-2 rounded-full bg-sky-400"></span>
+                        <span>{{ $coldCount }} Frias</span>
+                    </div>
+                </div>
             </div>
 
             @error('base_numbers')

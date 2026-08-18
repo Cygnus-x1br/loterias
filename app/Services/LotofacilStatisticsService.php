@@ -272,6 +272,67 @@ class LotofacilStatisticsService
     }
 
     /**
+     * Retorna estatísticas detalhadas do último concurso:
+     * soma, pares, ímpares, repetições do concurso anterior, primos, fibonacci e moldura.
+     */
+    public function getLastContestFullStatistics(): ?array
+    {
+        return Cache::remember('last_contest_full_statistics', now()->addMinutes(30), function () {
+            $lastTwo = HistoricalResult::orderByDesc('contest_number')->take(2)->get();
+            $latest = $lastTwo->first();
+
+            if (! $latest) {
+                return null;
+            }
+
+            $drawn = is_array($latest->drawn_numbers) ? $latest->drawn_numbers : json_decode($latest->drawn_numbers, true);
+            if (! is_array($drawn)) {
+                return null;
+            }
+
+            $drawn = array_map('intval', $drawn);
+            sort($drawn);
+
+            $previous = $lastTwo->count() > 1 ? $lastTwo->last() : null;
+            $prevDrawn = [];
+            if ($previous) {
+                $prevDrawn = is_array($previous->drawn_numbers) ? $previous->drawn_numbers : json_decode($previous->drawn_numbers, true);
+                $prevDrawn = is_array($prevDrawn) ? array_map('intval', $prevDrawn) : [];
+            }
+
+            $primesConst = [2, 3, 5, 7, 11, 13, 17, 19, 23];
+            $fibonacciConst = [1, 2, 3, 5, 8, 13, 21];
+            $frameConst = [1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25];
+
+            $evens = count(array_filter($drawn, fn ($n) => $n % 2 === 0));
+            $odds = count($drawn) - $evens;
+            $sum = array_sum($drawn);
+            $repeatedFromPrevious = ! empty($prevDrawn) ? count(array_intersect($drawn, $prevDrawn)) : null;
+            $primes = count(array_intersect($drawn, $primesConst));
+            $fibonacci = count(array_intersect($drawn, $fibonacciConst));
+            $frame = count(array_intersect($drawn, $frameConst));
+            $center = count($drawn) - $frame;
+
+            return [
+                'contest_number' => $latest->contest_number,
+                'draw_date' => $latest->draw_date instanceof \DateTimeInterface
+                    ? $latest->draw_date->format('d/m/Y')
+                    : ($latest->draw_date ? Carbon::parse($latest->draw_date)->format('d/m/Y') : null),
+                'drawn_numbers' => $drawn,
+                'sum' => $sum,
+                'evens' => $evens,
+                'odds' => $odds,
+                'repeated_from_previous' => $repeatedFromPrevious,
+                'previous_contest_number' => $previous?->contest_number,
+                'primes' => $primes,
+                'fibonacci' => $fibonacci,
+                'frame' => $frame,
+                'center' => $center,
+            ];
+        });
+    }
+
+    /**
      * Retorna o último concurso e suas dezenas, incluindo a soma.
      *
      * @return array|null Retorna um array com o resultado e a soma, ou null.
@@ -349,6 +410,102 @@ class LotofacilStatisticsService
                 ->all();
 
             return array_fill_keys($hashes, true);
+        });
+    }
+
+    /**
+     * Retorna a classificação de temperatura (quente, neutra, fria) de cada dezena (1 a 25)
+     * baseando-se na amostragem recente de concursos e histórico global.
+     *
+     * @param  int  $recentContests  Quantidade de concursos recentes para a análise de momento.
+     * @return array<int, array{number: int, temperature: string, recent_count: int, total_count: int, delay: int}>
+     */
+    public function getNumberTemperatureClassification(int $recentContests = 20): array
+    {
+        $cacheKey = 'number_temperature_classification_'.$recentContests;
+
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($recentContests) {
+            $latestContestNumber = HistoricalResult::max('contest_number') ?? 0;
+
+            // Frequência recente
+            $recentFrequencies = $this->getNumberFrequencies($recentContests)->toArray();
+
+            // Frequência global
+            $totalFrequencies = $this->getNumberFrequencies(null)->toArray();
+
+            // Calcular atraso (concursos desde o último sorteio de cada dezena)
+            $delays = [];
+            for ($i = 1; $i <= 25; $i++) {
+                $delays[$i] = 0;
+            }
+
+            if ($latestContestNumber > 0) {
+                $results = HistoricalResult::orderByDesc('contest_number')
+                    ->take(50)
+                    ->get(['contest_number', 'drawn_numbers']);
+
+                foreach (range(1, 25) as $num) {
+                    $found = false;
+                    foreach ($results as $index => $row) {
+                        $drawn = is_array($row->drawn_numbers) ? $row->drawn_numbers : json_decode($row->drawn_numbers, true);
+                        if (is_array($drawn) && in_array($num, $drawn, true)) {
+                            $delays[$num] = $index;
+                            $found = true;
+                            break;
+                        }
+                    }
+                    if (! $found) {
+                        $delays[$num] = count($results);
+                    }
+                }
+            }
+
+            // Ordenar por frequência recente (decrescente), desempatando por total global
+            $scoredNumbers = [];
+            for ($num = 1; $num <= 25; $num++) {
+                $recent = $recentFrequencies[$num] ?? 0;
+                $total = $totalFrequencies[$num] ?? 0;
+                $delay = $delays[$num] ?? 0;
+
+                $scoredNumbers[$num] = [
+                    'number' => $num,
+                    'recent_count' => $recent,
+                    'total_count' => $total,
+                    'delay' => $delay,
+                ];
+            }
+
+            // Ordena do mais frequente recente para o menos frequente
+            $sorted = $scoredNumbers;
+            uasort($sorted, function ($a, $b) {
+                if ($a['recent_count'] === $b['recent_count']) {
+                    return $b['total_count'] <=> $a['total_count'];
+                }
+
+                return $b['recent_count'] <=> $a['recent_count'];
+            });
+
+            $sortedKeys = array_keys($sorted);
+
+            // Top 8 são 'hot' (quentes), Últimos 8 são 'cold' (frias), 9 intermediárias são 'neutral' (médias/mornas)
+            $hotKeys = array_slice($sortedKeys, 0, 8);
+            $coldKeys = array_slice($sortedKeys, 17, 8);
+
+            $classification = [];
+            for ($num = 1; $num <= 25; $num++) {
+                $temp = 'neutral';
+                if (in_array($num, $hotKeys, true)) {
+                    $temp = 'hot';
+                } elseif (in_array($num, $coldKeys, true)) {
+                    $temp = 'cold';
+                }
+
+                $classification[$num] = array_merge($scoredNumbers[$num], [
+                    'temperature' => $temp,
+                ]);
+            }
+
+            return $classification;
         });
     }
 }

@@ -702,10 +702,33 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                             </div>
                                             
                                             @if(isset($bet->scoreData))
-                                                <div class="mt-2 text-[10px] font-bold text-{{ $bet->scoreData['color'] }}-700 flex items-center gap-1">
-                                                    <span class="bg-{{ $bet->scoreData['color'] }}-50 px-2 py-0.5 rounded-full border border-{{ $bet->scoreData['color'] }}-200">
+                                                <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                                                    <span class="font-bold text-{{ $bet->scoreData['color'] }}-700 bg-{{ $bet->scoreData['color'] }}-50 px-2 py-0.5 rounded-full border border-{{ $bet->scoreData['color'] }}-200" title="Score de equilíbrio: {{ $bet->scoreData['total_score'] }} pts">
                                                         Score: {{ $bet->scoreData['total_score'] }}
-                                                        ({{ $bet->scoreData['classification'] }})
+                                                    </span>
+
+                                                    {{-- Soma --}}
+                                                    <span class="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700 border border-slate-200" title="Soma total das dezenas: {{ $bet->scoreData['sum'] ?? 'N/A' }} pontos">
+                                                        <span class="text-slate-400 font-bold">∑</span>
+                                                        <span>{{ $bet->scoreData['sum'] ?? '-' }}</span>
+                                                    </span>
+
+                                                    {{-- Pares e Ímpares --}}
+                                                    <span class="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700 border border-slate-200" title="Proporção: {{ $bet->scoreData['evens'] ?? '-' }} Pares e {{ $bet->scoreData['odds'] ?? '-' }} Ímpares">
+                                                        <span class="text-indigo-600">{{ $bet->scoreData['evens'] ?? '-' }}P</span>/<span class="text-emerald-600">{{ $bet->scoreData['odds'] ?? '-' }}I</span>
+                                                    </span>
+
+                                                    {{-- Quentes / Médias / Frias --}}
+                                                    <span class="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700 border border-slate-200" title="Distribuição de temperatura recente: {{ $bet->scoreData['hot_count'] ?? 0 }} Quentes (🔥), {{ $bet->scoreData['neutral_count'] ?? 0 }} Médias (⚖️) e {{ $bet->scoreData['cold_count'] ?? 0 }} Frias (❄️)">
+                                                        <span class="text-amber-700 flex items-center gap-0.5" title="{{ $bet->scoreData['hot_count'] ?? 0 }} Quentes">
+                                                            <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>{{ $bet->scoreData['hot_count'] ?? 0 }}Q
+                                                        </span>
+                                                        <span class="text-slate-400">·</span>
+                                                        <span class="text-slate-600" title="{{ $bet->scoreData['neutral_count'] ?? 0 }} Médias">{{ $bet->scoreData['neutral_count'] ?? 0 }}N</span>
+                                                        <span class="text-slate-400">·</span>
+                                                        <span class="text-sky-700 flex items-center gap-0.5" title="{{ $bet->scoreData['cold_count'] ?? 0 }} Frias">
+                                                            <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>{{ $bet->scoreData['cold_count'] ?? 0 }}F
+                                                        </span>
                                                     </span>
                                                 </div>
                                             @endif

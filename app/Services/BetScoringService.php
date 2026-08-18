@@ -236,6 +236,22 @@ class BetScoringService
             $totalScore += $details['top_consecutive_quads']['points'];
         }
 
+        // 8. Contagem de Quentes, Neutras e Frias
+        $temperatures = $this->statisticsService->getNumberTemperatureClassification(20);
+        $hotCount = 0;
+        $neutralCount = 0;
+        $coldCount = 0;
+        foreach ($numbers as $num) {
+            $t = $temperatures[$num]['temperature'] ?? 'neutral';
+            if ($t === 'hot') {
+                $hotCount++;
+            } elseif ($t === 'cold') {
+                $coldCount++;
+            } else {
+                $neutralCount++;
+            }
+        }
+
         $classification = '🔴 Fora da Curva';
         $color = 'rose';
         if ($totalScore >= 800) {
@@ -254,6 +270,12 @@ class BetScoringService
             'max_score' => 1000,
             'classification' => $classification,
             'color' => $color,
+            'sum' => $sum,
+            'evens' => $evens,
+            'odds' => $odds,
+            'hot_count' => $hotCount,
+            'neutral_count' => $neutralCount,
+            'cold_count' => $coldCount,
             'details' => $details,
         ];
     }
