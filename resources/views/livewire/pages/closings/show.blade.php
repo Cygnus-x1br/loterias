@@ -719,15 +719,26 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                                     </span>
 
                                                     {{-- Quentes / Médias / Frias --}}
-                                                    <span class="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700 border border-slate-200" title="Distribuição de temperatura recente: {{ $bet->scoreData['hot_count'] ?? 0 }} Quentes (🔥), {{ $bet->scoreData['neutral_count'] ?? 0 }} Médias (⚖️) e {{ $bet->scoreData['cold_count'] ?? 0 }} Frias (❄️)">
+                                                    <span class="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700 border border-slate-200" title="Distribuição de temperatura recente: {{ $bet->scoreData['hot_count'] ?? 0 }} Quentes, {{ $bet->scoreData['neutral_count'] ?? 0 }} Médias e {{ $bet->scoreData['cold_count'] ?? 0 }} Frias">
                                                         <span class="text-amber-700 flex items-center gap-0.5" title="{{ $bet->scoreData['hot_count'] ?? 0 }} Quentes">
-                                                            <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>{{ $bet->scoreData['hot_count'] ?? 0 }}Q
+                                                            <svg class="h-3 w-3 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.527.82-1.124 1.93-1.64 3.12a20.08 20.08 0 01-1.393 2.748c-.5.845-.964 1.57-1.353 2.052a5.75 5.75 0 00-.737 1.258A6.002 6.002 0 0010 18a6.002 6.002 0 005.894-4.873c.07-.37.106-.75.106-1.127 0-1.197-.333-2.316-.913-3.268a15.733 15.733 0 00-1.89-2.544 19.86 19.86 0 00-.802-.835zM10 16a4 4 0 01-3.92-3.178c.036-.08.08-.16.13-.24.32-.51.72-1.17 1.18-1.95A18.09 18.09 0 008.66 8.01c.42-.98.88-1.87 1.34-2.58.3-.06.6.01.83.21.36.31.75.7 1.15 1.17.48.56.96 1.23 1.38 1.99.45.81.79 1.69.79 2.61A4.002 4.002 0 0110 16z" clip-rule="evenodd" />
+                                                            </svg>
+                                                            {{ $bet->scoreData['hot_count'] ?? 0 }}Q
                                                         </span>
                                                         <span class="text-slate-400">·</span>
-                                                        <span class="text-slate-600" title="{{ $bet->scoreData['neutral_count'] ?? 0 }} Médias">{{ $bet->scoreData['neutral_count'] ?? 0 }}N</span>
+                                                        <span class="text-slate-600 flex items-center gap-0.5" title="{{ $bet->scoreData['neutral_count'] ?? 0 }} Médias">
+                                                            {{ $bet->scoreData['neutral_count'] ?? 0 }}N
+                                                        </span>
                                                         <span class="text-slate-400">·</span>
                                                         <span class="text-sky-700 flex items-center gap-0.5" title="{{ $bet->scoreData['cold_count'] ?? 0 }} Frias">
-                                                            <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>{{ $bet->scoreData['cold_count'] ?? 0 }}F
+                                                            <svg class="h-3 w-3 text-sky-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <line x1="12" y1="2" x2="12" y2="22"></line>
+                                                                <line x1="2" y1="12" x2="22" y2="12"></line>
+                                                                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+                                                                <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"></line>
+                                                            </svg>
+                                                            {{ $bet->scoreData['cold_count'] ?? 0 }}F
                                                         </span>
                                                     </span>
                                                 </div>

@@ -6,7 +6,9 @@ use App\Models\Bet;
 use App\Models\Closing;
 use App\Models\HistoricalResult;
 use App\Models\User;
+use App\Services\BetScoringService;
 use App\Services\Betting\ClosingGenerator;
+use App\Services\LotofacilStatisticsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use InvalidArgumentException;
 use LogicException;
@@ -324,6 +326,134 @@ class BalancedBetGeneratorTest extends TestCase
                 'status' => 'failed',
             ]);
             $this->assertDatabaseCount('bets', 0); // Transação revertida em caso de falha
+        }
+    }
+
+    public function test_generates_balanced_bets_with_score_range_and_temperature_distribution(): void
+    {
+        $user = User::factory()->create();
+
+        // 1 Concurso para histórico
+        HistoricalResult::create([
+            'contest_number' => 100,
+            'draw_date' => '2026-01-01',
+            'drawn_numbers' => range(1, 15),
+            'drawn_numbers_hash' => HistoricalResult::generateDrawnNumbersHash(range(1, 15)),
+        ]);
+
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'name' => 'Fechamento equilibrado com score e temperatura',
+            'method' => 'balanced',
+            'status' => 'draft',
+            'base_numbers' => range(1, 25),
+            'bet_size' => 15,
+            'planned_bets' => 3,
+            'parameters' => [
+                'score_range' => [400, 1000],
+                'temperature_distribution' => [
+                    'hot' => [2, 10],
+                    'neutral' => [1, 10],
+                    'cold' => [0, 10],
+                ],
+            ],
+        ]);
+
+        $createdBets = app(ClosingGenerator::class)->generate($closing);
+
+        $this->assertSame(3, $createdBets);
+
+        $bets = Bet::query()->where('closing_id', $closing->id)->get();
+        $this->assertCount(3, $bets);
+
+        $temperatures = app(LotofacilStatisticsService::class)->getNumberTemperatureClassification(20);
+        $scoringService = app(BetScoringService::class);
+
+        foreach ($bets as $bet) {
+            $scoreData = $scoringService->calculateScore($bet->numbers);
+            $this->assertGreaterThanOrEqual(400, $scoreData['total_score']);
+            $this->assertLessThanOrEqual(1000, $scoreData['total_score']);
+
+            $hot = 0;
+            $neutral = 0;
+            $cold = 0;
+            foreach ($bet->numbers as $num) {
+                $t = $temperatures[$num]['temperature'] ?? 'neutral';
+                if ($t === 'hot') {
+                    $hot++;
+                } elseif ($t === 'cold') {
+                    $cold++;
+                } else {
+                    $neutral++;
+                }
+            }
+
+            $this->assertGreaterThanOrEqual(2, $hot);
+            $this->assertLessThanOrEqual(10, $hot);
+            $this->assertGreaterThanOrEqual(1, $neutral);
+            $this->assertLessThanOrEqual(10, $neutral);
+            $this->assertGreaterThanOrEqual(0, $cold);
+            $this->assertLessThanOrEqual(10, $cold);
+        }
+    }
+
+    public function test_rejects_invalid_score_range(): void
+    {
+        $user = User::factory()->create();
+
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'method' => 'balanced',
+            'status' => 'draft',
+            'base_numbers' => range(1, 25),
+            'bet_size' => 15,
+            'planned_bets' => 1,
+            'parameters' => [
+                'score_range' => [900, 500], // min > max
+            ],
+        ]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('A faixa de score deve ser um array [min_score, max_score] válido entre 0 e 1000.');
+
+        try {
+            app(ClosingGenerator::class)->generate($closing);
+        } finally {
+            $this->assertDatabaseHas('closings', [
+                'id' => $closing->id,
+                'status' => 'failed',
+            ]);
+        }
+    }
+
+    public function test_rejects_invalid_temperature_distribution(): void
+    {
+        $user = User::factory()->create();
+
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'method' => 'balanced',
+            'status' => 'draft',
+            'base_numbers' => range(1, 25),
+            'bet_size' => 15,
+            'planned_bets' => 1,
+            'parameters' => [
+                'temperature_distribution' => [
+                    'hot' => [10, 4], // min > max
+                ],
+            ],
+        ]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('O intervalo de dezenas hot deve ser um array [min, max] válido entre 0 e 15.');
+
+        try {
+            app(ClosingGenerator::class)->generate($closing);
+        } finally {
+            $this->assertDatabaseHas('closings', [
+                'id' => $closing->id,
+                'status' => 'failed',
+            ]);
         }
     }
 }

@@ -74,6 +74,14 @@ class ClosingsEditTest extends TestCase
             ->set('max_even', 9)
             ->set('min_repeated_last_draw', 8)
             ->set('max_repeated_last_draw', 11)
+            ->set('min_score', 650)
+            ->set('max_score', 950)
+            ->set('min_hot', 4)
+            ->set('max_hot', 7)
+            ->set('min_neutral', 4)
+            ->set('max_neutral', 6)
+            ->set('min_cold', 2)
+            ->set('max_cold', 5)
             ->call('save')
             ->assertHasNoErrors()
             ->assertRedirect(route('closings.show', $closing));
@@ -84,6 +92,12 @@ class ClosingsEditTest extends TestCase
         $this->assertCount(20, $closing->base_numbers);
         $this->assertEquals([7, 9], $closing->parameters['even_odd_balance']);
         $this->assertEquals([8, 11], $closing->parameters['repeated_last_draw']);
+        $this->assertEquals([650, 950], $closing->parameters['score_range']);
+        $this->assertEquals([
+            'hot' => [4, 7],
+            'neutral' => [4, 6],
+            'cold' => [2, 5],
+        ], $closing->parameters['temperature_distribution']);
     }
 
     public function test_cannot_edit_completed_closing(): void

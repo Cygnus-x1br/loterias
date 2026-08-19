@@ -84,4 +84,34 @@ class LotofacilStatisticsTest extends TestCase
             ->call('recalculateRepeatedDraws')
             ->assertHasNoErrors();
     }
+
+    public function test_calcula_media_de_score_historico_e_temperaturas_do_ultimo_sorteio(): void
+    {
+        $drawnNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        HistoricalResult::create([
+            'contest_number' => 1,
+            'draw_date' => '2026-01-01',
+            'drawn_numbers' => $drawnNumbers,
+            'drawn_numbers_hash' => HistoricalResult::generateDrawnNumbersHash($drawnNumbers),
+        ]);
+
+        $service = app(LotofacilStatisticsService::class);
+        $averageScore = $service->getHistoricalAverageScore();
+
+        $this->assertIsArray($averageScore);
+        $this->assertEquals(1, $averageScore['total_contests']);
+        $this->assertGreaterThan(0, $averageScore['average_score']);
+
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        Livewire::test(LotofacilStatistics::class)
+            ->assertSee('Média de Score dos Concursos')
+            ->assertSee('Quentes')
+            ->assertSee('Neutras')
+            ->assertSee('Frias')
+            ->assertSet('lastContestTemperatures.hot_count', fn ($val) => is_int($val))
+            ->assertSet('lastContestTemperatures.neutral_count', fn ($val) => is_int($val))
+            ->assertSet('lastContestTemperatures.cold_count', fn ($val) => is_int($val));
+    }
 }

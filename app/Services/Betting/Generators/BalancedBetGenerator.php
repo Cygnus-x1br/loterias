@@ -3,6 +3,7 @@
 namespace App\Services\Betting\Generators;
 
 use App\Models\Closing;
+use App\Services\BetScoringService;
 use App\Services\LotofacilStatisticsService;
 use InvalidArgumentException;
 use LogicException;
@@ -89,7 +90,36 @@ class BalancedBetGenerator implements BetGeneratorInterface
             }
         }
 
-        // TODO: Adicionar validações para outros parâmetros de equilíbrio se forem implementados.
+        // Validação de Faixa de Score (0 a 1000)
+        if (isset($parameters['score_range'])) {
+            $scoreRange = $parameters['score_range'];
+            if (! is_array($scoreRange) || count($scoreRange) !== 2 || $scoreRange[0] < 0 || $scoreRange[1] > 1000 || $scoreRange[0] > $scoreRange[1]) {
+                throw new InvalidArgumentException(
+                    'A faixa de score deve ser um array [min_score, max_score] válido entre 0 e 1000.'
+                );
+            }
+        }
+
+        // Validação de Distribuição de Temperatura (Quentes, Neutras, Frias)
+        if (isset($parameters['temperature_distribution'])) {
+            $temp = $parameters['temperature_distribution'];
+            if (! is_array($temp)) {
+                throw new InvalidArgumentException(
+                    'A distribuição de temperatura deve ser um array de parâmetros válido.'
+                );
+            }
+
+            foreach (['hot', 'neutral', 'cold'] as $type) {
+                if (isset($temp[$type])) {
+                    $range = $temp[$type];
+                    if (! is_array($range) || count($range) !== 2 || $range[0] < 0 || $range[1] > $betSize || $range[0] > $range[1]) {
+                        throw new InvalidArgumentException(
+                            "O intervalo de dezenas {$type} deve ser um array [min, max] válido entre 0 e {$betSize}."
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -120,6 +150,11 @@ class BalancedBetGenerator implements BetGeneratorInterface
             }
         }
 
+        $temperatures = null;
+        if (isset($parameters['temperature_distribution'])) {
+            $temperatures = app(LotofacilStatisticsService::class)->getNumberTemperatureClassification(20);
+        }
+
         $generatedCount = 0;
         $attempts = 0;
         $maxAttemptsPerBet = 1000; // Limite de tentativas para encontrar uma aposta válida
@@ -135,7 +170,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
                 continue;
             }
 
-            if ($this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers)) {
+            if ($this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures)) {
                 yield $currentBet;
                 $uniqueBets[] = $currentBet;
                 $generatedCount++;
@@ -171,9 +206,15 @@ class BalancedBetGenerator implements BetGeneratorInterface
      * @param  array<int>  $bet
      * @param  array<string, mixed>  $parameters
      * @param  array<int>|null  $lastDrawnNumbers
+     * @param  array<int, array<string, mixed>>|null  $temperatures
      */
-    protected function isBalanced(array $bet, array $parameters, int $betSize, ?array $lastDrawnNumbers = null): bool
-    {
+    protected function isBalanced(
+        array $bet,
+        array $parameters,
+        int $betSize,
+        ?array $lastDrawnNumbers = null,
+        ?array $temperatures = null
+    ): bool {
         // Equilíbrio Par/Ímpar
         if (isset($parameters['even_odd_balance'])) {
             $evenCount = count(array_filter($bet, fn ($n) => $n % 2 === 0));
@@ -219,7 +260,60 @@ class BalancedBetGenerator implements BetGeneratorInterface
             }
         }
 
-        // TODO: Adicionar verificação para outros parâmetros de equilíbrio.
+        // Faixa de Score (0 a 1000)
+        if (isset($parameters['score_range'])) {
+            $scoreData = app(BetScoringService::class)->calculateScore($bet);
+            $totalScore = $scoreData['total_score'] ?? 0;
+            [$minScore, $maxScore] = $parameters['score_range'];
+            if ($totalScore < $minScore || $totalScore > $maxScore) {
+                return false;
+            }
+        }
+
+        // Distribuição de Temperatura
+        if (isset($parameters['temperature_distribution'])) {
+            if ($temperatures === null) {
+                $temperatures = app(LotofacilStatisticsService::class)->getNumberTemperatureClassification(20);
+            }
+
+            $hotCount = 0;
+            $neutralCount = 0;
+            $coldCount = 0;
+
+            foreach ($bet as $number) {
+                $type = $temperatures[$number]['temperature'] ?? 'neutral';
+                if ($type === 'hot') {
+                    $hotCount++;
+                } elseif ($type === 'cold') {
+                    $coldCount++;
+                } else {
+                    $neutralCount++;
+                }
+            }
+
+            $tempRules = $parameters['temperature_distribution'];
+
+            if (isset($tempRules['hot'])) {
+                [$minHot, $maxHot] = $tempRules['hot'];
+                if ($hotCount < $minHot || $hotCount > $maxHot) {
+                    return false;
+                }
+            }
+
+            if (isset($tempRules['neutral'])) {
+                [$minNeutral, $maxNeutral] = $tempRules['neutral'];
+                if ($neutralCount < $minNeutral || $neutralCount > $maxNeutral) {
+                    return false;
+                }
+            }
+
+            if (isset($tempRules['cold'])) {
+                [$minCold, $maxCold] = $tempRules['cold'];
+                if ($coldCount < $minCold || $coldCount > $maxCold) {
+                    return false;
+                }
+            }
+        }
 
         return true;
     }

@@ -508,4 +508,246 @@ class LotofacilStatisticsService
             return $classification;
         });
     }
+
+    /**
+     * Calcula a média de Score histórico de todos os sorteios registrados.
+     *
+     * @return array{total_contests: int, average_score: float, min_score: int, max_score: int, classification: string, color: string}
+     */
+    public function getHistoricalAverageScore(): array
+    {
+        return Cache::remember('historical_average_score', now()->addHours(6), function () {
+            $results = HistoricalResult::query()
+                ->orderBy('contest_number')
+                ->get(['id', 'contest_number', 'drawn_numbers']);
+
+            $totalContests = $results->count();
+
+            if ($totalContests === 0) {
+                return [
+                    'total_contests' => 0,
+                    'average_score' => 0.0,
+                    'min_score' => 0,
+                    'max_score' => 0,
+                    'classification' => '—',
+                    'color' => 'slate',
+                ];
+            }
+
+            // Pré-carregar dados estáticos para cálculo em memória super rápido
+            $frameSet = array_flip([1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25]);
+            $top10Numbers = array_flip($this->getMostDrawnNumbers(10)->keys()->toArray());
+            $top10Pairs = array_flip($this->getMostFrequentPairs(10)->keys()->toArray());
+            $top10Trios = array_flip($this->getMostFrequentTrios(10)->keys()->toArray());
+
+            $analysisCache = Cache::get('lotofacil_advanced_analysis');
+            $consecutiveTop = $analysisCache['consecutive_sequences'] ?? [];
+            $topPairsCons = array_flip(array_keys($consecutiveTop['top_pairs_consecutive'] ?? []));
+            $topTriosCons = array_flip(array_keys($consecutiveTop['top_trios_consecutive'] ?? []));
+            $topQuadsCons = array_flip(array_keys($consecutiveTop['top_quads_consecutive'] ?? []));
+
+            $lastContestData = $this->getLastContestWithSum();
+            $lastNumbers = $lastContestData['result']['drawn_numbers'] ?? [];
+            if (is_string($lastNumbers)) {
+                $lastNumbers = json_decode($lastNumbers, true) ?? [];
+            }
+            $lastNumbersSet = array_flip(array_map('intval', (array) $lastNumbers));
+
+            $totalScoreSum = 0;
+            $minScore = PHP_INT_MAX;
+            $maxScore = 0;
+
+            foreach ($results as $item) {
+                $numbers = is_array($item->drawn_numbers)
+                    ? $item->drawn_numbers
+                    : (json_decode((string) $item->drawn_numbers, true) ?? []);
+
+                if (! is_array($numbers) || count($numbers) !== 15) {
+                    continue;
+                }
+
+                $numbers = array_map('intval', $numbers);
+                sort($numbers);
+
+                $totalScore = 0;
+
+                // 1. Soma
+                $sum = array_sum($numbers);
+                if ($sum >= 180 && $sum <= 220) {
+                    $totalScore += 200;
+                } elseif (($sum >= 170 && $sum <= 179) || ($sum >= 221 && $sum <= 230)) {
+                    $totalScore += 100;
+                }
+
+                // 2. Paridade
+                $evens = 0;
+                $frame = 0;
+                foreach ($numbers as $num) {
+                    if ($num % 2 === 0) {
+                        $evens++;
+                    }
+                    if (isset($frameSet[$num])) {
+                        $frame++;
+                    }
+                }
+                $odds = 15 - $evens;
+                if (($evens === 7 && $odds === 8) || ($evens === 8 && $odds === 7)) {
+                    $totalScore += 200;
+                } elseif (($evens === 6 && $odds === 9) || ($evens === 9 && $odds === 6)) {
+                    $totalScore += 100;
+                }
+
+                // 3. Moldura
+                $center = 15 - $frame;
+                if (($frame === 9 && $center === 6) || ($frame === 10 && $center === 5)) {
+                    $totalScore += 200;
+                } elseif (($frame === 8 && $center === 7) || ($frame === 11 && $center === 4)) {
+                    $totalScore += 100;
+                }
+
+                // 4. Repetição Último Concurso
+                if (! empty($lastNumbersSet)) {
+                    $repCount = 0;
+                    foreach ($numbers as $num) {
+                        if (isset($lastNumbersSet[$num])) {
+                            $repCount++;
+                        }
+                    }
+                    if (in_array($repCount, [8, 9, 10], true)) {
+                        $totalScore += 150;
+                    } elseif (in_array($repCount, [7, 11], true)) {
+                        $totalScore += 75;
+                    }
+                }
+
+                // 5. Ineditismo (concurso histórico tem base pontual padrão 50 de pontuação de estrutura)
+                $totalScore += 50;
+
+                // 6. Top 10 Dezenas
+                $top10Count = 0;
+                foreach ($numbers as $num) {
+                    if (isset($top10Numbers[$num])) {
+                        $top10Count++;
+                    }
+                }
+                if ($top10Count >= 6 && $top10Count <= 8) {
+                    $totalScore += 50;
+                } elseif (in_array($top10Count, [4, 5, 9, 10], true)) {
+                    $totalScore += 25;
+                }
+
+                // 7. Pares Top 10
+                $pairsCount = 0;
+                for ($i = 0; $i < 15; $i++) {
+                    for ($j = $i + 1; $j < 15; $j++) {
+                        $pairStr = sprintf('%02d-%02d', $numbers[$i], $numbers[$j]);
+                        if (isset($top10Pairs[$pairStr])) {
+                            $pairsCount++;
+                        }
+                    }
+                }
+                if ($pairsCount >= 3) {
+                    $totalScore += 30;
+                } elseif ($pairsCount >= 1) {
+                    $totalScore += 15;
+                }
+
+                // 8. Trios Top 10
+                $triosCount = 0;
+                for ($i = 0; $i < 15; $i++) {
+                    for ($j = $i + 1; $j < 15; $j++) {
+                        for ($k = $j + 1; $k < 15; $k++) {
+                            $trioStr = sprintf('%02d-%02d-%02d', $numbers[$i], $numbers[$j], $numbers[$k]);
+                            if (isset($top10Trios[$trioStr])) {
+                                $triosCount++;
+                            }
+                        }
+                    }
+                }
+                if ($triosCount >= 2) {
+                    $totalScore += 30;
+                } elseif ($triosCount === 1) {
+                    $totalScore += 15;
+                }
+
+                // 9, 10, 11. Consecutivos
+                if (! empty($topPairsCons) || ! empty($topTriosCons) || ! empty($topQuadsCons)) {
+                    $myPairsCons = 0;
+                    $myTriosCons = 0;
+                    $myQuadsCons = 0;
+
+                    for ($i = 0; $i < 14; $i++) {
+                        if ($numbers[$i + 1] === $numbers[$i] + 1) {
+                            $pairStr = sprintf('%02d-%02d', $numbers[$i], $numbers[$i + 1]);
+                            if (isset($topPairsCons[$pairStr])) {
+                                $myPairsCons++;
+                            }
+
+                            if ($i < 13 && $numbers[$i + 2] === $numbers[$i] + 2) {
+                                $trioStr = sprintf('%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2]);
+                                if (isset($topTriosCons[$trioStr])) {
+                                    $myTriosCons++;
+                                }
+
+                                if ($i < 12 && $numbers[$i + 3] === $numbers[$i] + 3) {
+                                    $quadStr = sprintf('%02d-%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2], $numbers[$i + 3]);
+                                    if (isset($topQuadsCons[$quadStr])) {
+                                        $myQuadsCons++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if ($myPairsCons >= 3) {
+                        $totalScore += 30;
+                    } elseif ($myPairsCons >= 1) {
+                        $totalScore += 15;
+                    }
+
+                    if ($myTriosCons >= 2) {
+                        $totalScore += 30;
+                    } elseif ($myTriosCons === 1) {
+                        $totalScore += 15;
+                    }
+
+                    if ($myQuadsCons >= 1) {
+                        $totalScore += 30;
+                    }
+                }
+
+                $totalScoreSum += $totalScore;
+                if ($totalScore < $minScore) {
+                    $minScore = $totalScore;
+                }
+                if ($totalScore > $maxScore) {
+                    $maxScore = $totalScore;
+                }
+            }
+
+            $averageScore = round($totalScoreSum / $totalContests, 1);
+
+            $classification = '🔴 Fora da Curva';
+            $color = 'rose';
+            if ($averageScore >= 800) {
+                $classification = '🟢 Excelente';
+                $color = 'emerald';
+            } elseif ($averageScore >= 600) {
+                $classification = '🟡 Boa';
+                $color = 'amber';
+            } elseif ($averageScore >= 400) {
+                $classification = '🟠 Regular';
+                $color = 'orange';
+            }
+
+            return [
+                'total_contests' => $totalContests,
+                'average_score' => $averageScore,
+                'min_score' => $minScore === PHP_INT_MAX ? 0 : $minScore,
+                'max_score' => $maxScore,
+                'classification' => $classification,
+                'color' => $color,
+            ];
+        });
+    }
 }

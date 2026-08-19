@@ -68,10 +68,15 @@ class HistoricalResultService
         Cache::forget('last_contest_with_sum');
         Cache::forget('repeated_draws_analysis');
         Cache::forget('historical_draw_hashes');
+        Cache::forget('historical_average_score');
         Cache::forget('number_frequencies_all');
         Cache::forget('number_frequencies_10');
         Cache::forget('number_frequencies_25');
         Cache::forget('number_frequencies_50');
+
+        foreach ([10, 15, 20, 25, 30, 50] as $recent) {
+            Cache::forget("number_temperature_classification_{$recent}");
+        }
 
         foreach ([10, 15, 20, 25] as $limit) {
             foreach (['all', 10, 25, 50, 100] as $contestSpan) {

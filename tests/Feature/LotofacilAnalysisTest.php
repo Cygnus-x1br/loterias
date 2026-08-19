@@ -29,11 +29,19 @@ class LotofacilAnalysisTest extends TestCase
 
     public function test_authenticated_user_can_access_analysis_page(): void
     {
+        HistoricalResult::create([
+            'contest_number' => 1,
+            'draw_date' => '2026-08-01',
+            'drawn_numbers' => range(1, 15),
+            'drawn_numbers_hash' => HistoricalResult::generateDrawnNumbersHash(range(1, 15)),
+        ]);
+
         $this->actingAs($this->user)
             ->get(route('lotofacil.analysis'))
             ->assertOk()
             ->assertSee('Análises da Lotofácil')
-            ->assertSee('Cálculos Matemáticos');
+            ->assertSee('Cálculos Matemáticos')
+            ->assertSee('Média de Score dos Concursos');
     }
 
     public function test_component_renders_correct_statistics_for_consecutive_draws(): void

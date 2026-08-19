@@ -139,6 +139,14 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
     public ?int $max_fibonacci = null;
     public ?int $min_repeated_last_draw = null;
     public ?int $max_repeated_last_draw = null;
+    public ?int $min_score = null;
+    public ?int $max_score = null;
+    public ?int $min_hot = null;
+    public ?int $max_hot = null;
+    public ?int $min_neutral = null;
+    public ?int $max_neutral = null;
+    public ?int $min_cold = null;
+    public ?int $max_cold = null;
 
     // Novos parâmetros para sistema de roda
     public array $fixed_numbers = [];
@@ -220,6 +228,14 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             $rules['max_fibonacci'] = ['nullable', 'integer', 'min:0', 'max:7', 'gte:min_fibonacci'];
             $rules['min_repeated_last_draw'] = ['nullable', 'integer', 'min:0', 'max:15'];
             $rules['max_repeated_last_draw'] = ['nullable', 'integer', 'min:0', 'max:15', 'gte:min_repeated_last_draw'];
+            $rules['min_score'] = ['nullable', 'integer', 'min:0', 'max:1000'];
+            $rules['max_score'] = ['nullable', 'integer', 'min:0', 'max:1000', 'gte:min_score'];
+            $rules['min_hot'] = ['nullable', 'integer', 'min:0', 'max:15'];
+            $rules['max_hot'] = ['nullable', 'integer', 'min:0', 'max:15', 'gte:min_hot'];
+            $rules['min_neutral'] = ['nullable', 'integer', 'min:0', 'max:15'];
+            $rules['max_neutral'] = ['nullable', 'integer', 'min:0', 'max:15', 'gte:min_neutral'];
+            $rules['min_cold'] = ['nullable', 'integer', 'min:0', 'max:15'];
+            $rules['max_cold'] = ['nullable', 'integer', 'min:0', 'max:15', 'gte:min_cold'];
         }
 
         // Regras condicionais para o método 'wheel'
@@ -580,6 +596,22 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 if ($this->min_repeated_last_draw !== null && $this->max_repeated_last_draw !== null) {
                     $parameters['repeated_last_draw'] = [(int) $this->min_repeated_last_draw, (int) $this->max_repeated_last_draw];
                 }
+                if ($this->min_score !== null && $this->max_score !== null) {
+                    $parameters['score_range'] = [(int) $this->min_score, (int) $this->max_score];
+                }
+                $tempDist = [];
+                if ($this->min_hot !== null && $this->max_hot !== null) {
+                    $tempDist['hot'] = [(int) $this->min_hot, (int) $this->max_hot];
+                }
+                if ($this->min_neutral !== null && $this->max_neutral !== null) {
+                    $tempDist['neutral'] = [(int) $this->min_neutral, (int) $this->max_neutral];
+                }
+                if ($this->min_cold !== null && $this->max_cold !== null) {
+                    $tempDist['cold'] = [(int) $this->min_cold, (int) $this->max_cold];
+                }
+                if (! empty($tempDist)) {
+                    $parameters['temperature_distribution'] = $tempDist;
+                }
                 if (empty($parameters)) {
                     $parameters = null;
                 }
@@ -809,13 +841,19 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                             'border-slate-200 bg-slate-50 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700' => ! $selected,
                         ])
                     >
-                        {{-- Indicador visual sutil de temperatura --}}
-                        <span class="absolute top-1 right-1.5 flex h-2 w-2">
+                        {{-- Indicador visual de temperatura com ícones SVG --}}
+                        <span class="absolute top-1 right-1 flex">
                             @if ($temp === 'hot')
-                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500" title="Dezena Quente"></span>
+                                <svg class="h-3 w-3 text-amber-500 drop-shadow-xs" viewBox="0 0 20 20" fill="currentColor" title="Dezena Quente">
+                                    <path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.527.82-1.124 1.93-1.64 3.12a20.08 20.08 0 01-1.393 2.748c-.5.845-.964 1.57-1.353 2.052a5.75 5.75 0 00-.737 1.258A6.002 6.002 0 0010 18a6.002 6.002 0 005.894-4.873c.07-.37.106-.75.106-1.127 0-1.197-.333-2.316-.913-3.268a15.733 15.733 0 00-1.89-2.544 19.86 19.86 0 00-.802-.835zM10 16a4 4 0 01-3.92-3.178c.036-.08.08-.16.13-.24.32-.51.72-1.17 1.18-1.95A18.09 18.09 0 008.66 8.01c.42-.98.88-1.87 1.34-2.58.3-.06.6.01.83.21.36.31.75.7 1.15 1.17.48.56.96 1.23 1.38 1.99.45.81.79 1.69.79 2.61A4.002 4.002 0 0110 16z" clip-rule="evenodd" />
+                                </svg>
                             @elseif ($temp === 'cold')
-                                <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-400" title="Dezena Fria"></span>
+                                <svg class="h-3 w-3 text-sky-400 drop-shadow-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" title="Dezena Fria">
+                                    <line x1="12" y1="2" x2="12" y2="22"></line>
+                                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+                                    <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"></line>
+                                </svg>
                             @endif
                         </span>
 
@@ -845,17 +883,26 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
                 <div class="flex items-center gap-3">
                     <div class="flex items-center gap-1.5 rounded-lg bg-amber-100/70 px-2.5 py-1 font-semibold text-amber-800 border border-amber-200/50">
-                        <span class="h-2 w-2 rounded-full bg-amber-500"></span>
+                        <svg class="h-3.5 w-3.5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.527.82-1.124 1.93-1.64 3.12a20.08 20.08 0 01-1.393 2.748c-.5.845-.964 1.57-1.353 2.052a5.75 5.75 0 00-.737 1.258A6.002 6.002 0 0010 18a6.002 6.002 0 005.894-4.873c.07-.37.106-.75.106-1.127 0-1.197-.333-2.316-.913-3.268a15.733 15.733 0 00-1.89-2.544 19.86 19.86 0 00-.802-.835zM10 16a4 4 0 01-3.92-3.178c.036-.08.08-.16.13-.24.32-.51.72-1.17 1.18-1.95A18.09 18.09 0 008.66 8.01c.42-.98.88-1.87 1.34-2.58.3-.06.6.01.83.21.36.31.75.7 1.15 1.17.48.56.96 1.23 1.38 1.99.45.81.79 1.69.79 2.61A4.002 4.002 0 0110 16z" clip-rule="evenodd" />
+                        </svg>
                         <span>{{ $hotCount }} Quentes</span>
                     </div>
 
                     <div class="flex items-center gap-1.5 rounded-lg bg-slate-200/60 px-2.5 py-1 font-semibold text-slate-700 border border-slate-300/50">
-                        <span class="h-2 w-2 rounded-full bg-slate-400"></span>
+                        <svg class="h-3.5 w-3.5 text-slate-500" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v1.07A7.002 7.002 0 0116.93 11H18a1 1 0 110 2h-1.07A7.002 7.002 0 0111 18.93V20a1 1 0 11-2 0v-1.07A7.002 7.002 0 013.07 13H2a1 1 0 110-2h1.07A7.002 7.002 0 019 5.07V4a1 1 0 011-1zm0 4a5 5 0 100 10 5 5 0 000-10z" clip-rule="evenodd" />
+                        </svg>
                         <span>{{ $neutralCount }} Médias</span>
                     </div>
 
                     <div class="flex items-center gap-1.5 rounded-lg bg-sky-100/70 px-2.5 py-1 font-semibold text-sky-800 border border-sky-200/50">
-                        <span class="h-2 w-2 rounded-full bg-sky-400"></span>
+                        <svg class="h-3.5 w-3.5 text-sky-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="2" x2="12" y2="22"></line>
+                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+                            <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"></line>
+                        </svg>
                         <span>{{ $coldCount }} Frias</span>
                     </div>
                 </div>
@@ -1308,6 +1355,160 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                                     {{ $message }}
                                 </p>
                             @enderror
+                        </div>
+
+                        {{-- Faixa de Score (0 a 1000) --}}
+                        <div class="pt-2 border-t border-indigo-100">
+                            <label
+                                for="min_score"
+                                class="block text-sm font-semibold text-slate-700"
+                            >
+                                Faixa de Score / Pontuação (0 a 1.000 pts)
+                            </label>
+                            <p class="mt-1 text-xs text-slate-500">
+                                Filtra apenas apostas cuja pontuação de qualidade esteja dentro da faixa desejada.
+                            </p>
+                            <div class="mt-2 flex gap-2">
+                                <input
+                                    id="min_score"
+                                    type="number"
+                                    wire:model="min_score"
+                                    placeholder="Mín (ex: 600)"
+                                    min="0"
+                                    max="1000"
+                                    step="10"
+                                    class="block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                >
+                                <input
+                                    id="max_score"
+                                    type="number"
+                                    wire:model="max_score"
+                                    placeholder="Máx (ex: 1000)"
+                                    min="0"
+                                    max="1000"
+                                    step="10"
+                                    class="block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                >
+                            </div>
+                            @error('min_score')
+                                <p class="mt-2 text-sm font-medium text-rose-600">
+                                    {{ $message }}
+                                </p>
+                            @enderror
+                            @error('max_score')
+                                <p class="mt-2 text-sm font-medium text-rose-600">
+                                    {{ $message }}
+                                </p>
+                            @enderror
+                        </div>
+
+                        {{-- Distribuição de Temperatura --}}
+                        <div class="pt-2 border-t border-indigo-100 space-y-3">
+                            <div>
+                                <h4 class="text-sm font-semibold text-slate-700">
+                                    Distribuição de Temperatura Recente
+                                </h4>
+                                <p class="mt-1 text-xs text-slate-500">
+                                    Defina a quantidade de dezenas Quentes, Neutras e Frias por aposta (baseado nos últimos 20 concursos).
+                                </p>
+                            </div>
+
+                            {{-- Quentes --}}
+                            <div>
+                                <label for="min_hot" class="flex items-center gap-1.5 text-xs font-semibold text-amber-700">
+                                    <svg class="h-3.5 w-3.5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.527.82-1.124 1.93-1.64 3.12a20.08 20.08 0 01-1.393 2.748c-.5.845-.964 1.57-1.353 2.052a5.75 5.75 0 00-.737 1.258A6.002 6.002 0 0010 18a6.002 6.002 0 005.894-4.873c.07-.37.106-.75.106-1.127 0-1.197-.333-2.316-.913-3.268a15.733 15.733 0 00-1.89-2.544 19.86 19.86 0 00-.802-.835zM10 16a4 4 0 01-3.92-3.178c.036-.08.08-.16.13-.24.32-.51.72-1.17 1.18-1.95A18.09 18.09 0 008.66 8.01c.42-.98.88-1.87 1.34-2.58.3-.06.6.01.83.21.36.31.75.7 1.15 1.17.48.56.96 1.23 1.38 1.99.45.81.79 1.69.79 2.61A4.002 4.002 0 0110 16z" clip-rule="evenodd" />
+                                    </svg>
+                                    Dezenas Quentes (🔥 Mín/Máx)
+                                </label>
+                                <div class="mt-1.5 flex gap-2">
+                                    <input
+                                        id="min_hot"
+                                        type="number"
+                                        wire:model="min_hot"
+                                        placeholder="Mín (ex: 4)"
+                                        min="0"
+                                        max="15"
+                                        class="block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                    <input
+                                        id="max_hot"
+                                        type="number"
+                                        wire:model="max_hot"
+                                        placeholder="Máx (ex: 6)"
+                                        min="0"
+                                        max="15"
+                                        class="block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                </div>
+                                @error('min_hot') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
+                                @error('max_hot') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
+                            </div>
+
+                            {{-- Neutras --}}
+                            <div>
+                                <label for="min_neutral" class="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                                    <span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span>
+                                    Dezenas Neutras (⚖️ Mín/Máx)
+                                </label>
+                                <div class="mt-1.5 flex gap-2">
+                                    <input
+                                        id="min_neutral"
+                                        type="number"
+                                        wire:model="min_neutral"
+                                        placeholder="Mín (ex: 4)"
+                                        min="0"
+                                        max="15"
+                                        class="block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                    <input
+                                        id="max_neutral"
+                                        type="number"
+                                        wire:model="max_neutral"
+                                        placeholder="Máx (ex: 7)"
+                                        min="0"
+                                        max="15"
+                                        class="block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                </div>
+                                @error('min_neutral') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
+                                @error('max_neutral') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
+                            </div>
+
+                            {{-- Frias --}}
+                            <div>
+                                <label for="min_cold" class="flex items-center gap-1.5 text-xs font-semibold text-sky-700">
+                                    <svg class="h-3.5 w-3.5 text-sky-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="2" x2="12" y2="22"></line>
+                                        <line x1="2" y1="12" x2="22" y2="12"></line>
+                                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+                                        <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"></line>
+                                    </svg>
+                                    Dezenas Frias (❄️ Mín/Máx)
+                                </label>
+                                <div class="mt-1.5 flex gap-2">
+                                    <input
+                                        id="min_cold"
+                                        type="number"
+                                        wire:model="min_cold"
+                                        placeholder="Mín (ex: 3)"
+                                        min="0"
+                                        max="15"
+                                        class="block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                    <input
+                                        id="max_cold"
+                                        type="number"
+                                        wire:model="max_cold"
+                                        placeholder="Máx (ex: 5)"
+                                        min="0"
+                                        max="15"
+                                        class="block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                </div>
+                                @error('min_cold') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
+                                @error('max_cold') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
+                            </div>
                         </div>
                     </div>
                 @endif
