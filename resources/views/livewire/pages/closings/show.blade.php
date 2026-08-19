@@ -31,6 +31,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     public ?array $checkSummary = null;
     public ?string $checkError = null;
     public ?array $checkedContestInfo = null;
+    public ?array $baseNumbersCoverage = null;
 
     public function mount(Closing $closing): void
     {
@@ -51,6 +52,10 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
 
         if ($closing->status === 'placed' || $closing->status === 'checked') {
             $this->evaluateResults();
+        }
+        
+        if (in_array($closing->status, ['completed', 'placed', 'checked'])) {
+            $this->checkBaseNumbersCoverage();
         }
     }
 
@@ -148,6 +153,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
             'contest_number' => $historicalResult->contest_number,
             'draw_date' => $historicalResult->draw_date ? $historicalResult->draw_date->format('d/m/Y') : null,
             'drawn_numbers' => $drawnNumbers,
+            'drawn_not_in_base' => array_values(array_diff($drawnNumbers, $this->closing->base_numbers ?? [])),
         ];
 
         // Atualiza os hits de cada aposta vinculada
@@ -276,6 +282,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         try {
             $createdBets = app(ClosingGenerator::class)->generate($this->closing);
             $this->generationSuccess = "{$createdBets} aposta(s) gerada(s) com sucesso.";
+            $this->checkBaseNumbersCoverage();
         } catch (\InvalidArgumentException|\LogicException $exception) {
             $this->generationError = $exception->getMessage();
         } catch (\Throwable $exception) {
@@ -284,6 +291,34 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         } finally {
             $this->closing->refresh();
         }
+    }
+
+    public function checkBaseNumbersCoverage(): void
+    {
+        $baseNumbers = $this->closing->base_numbers ?? [];
+        if (empty($baseNumbers)) {
+            return;
+        }
+
+        $allBetNumbers = [];
+        $bets = $this->closing->bets()->get();
+        foreach ($bets as $bet) {
+            $numbers = is_array($bet->numbers) ? $bet->numbers : (json_decode((string) $bet->numbers, true) ?? []);
+            $allBetNumbers = array_merge($allBetNumbers, $numbers);
+        }
+
+        $usedNumbers = array_unique($allBetNumbers);
+        sort($usedNumbers);
+
+        $unusedNumbers = array_diff($baseNumbers, $usedNumbers);
+        sort($unusedNumbers);
+
+        $this->baseNumbersCoverage = [
+            'total_base' => count($baseNumbers),
+            'total_used' => count($usedNumbers),
+            'unused_numbers' => array_values($unusedNumbers),
+            'all_used' => empty($unusedNumbers)
+        ];
     }
 
     /**
@@ -514,6 +549,38 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         </div>
                     </div>
                 @endif
+                
+                @if ($baseNumbersCoverage)
+                    <div class="mt-5 rounded-xl border {{ $baseNumbersCoverage['all_used'] ? 'border-indigo-200 bg-indigo-50' : 'border-amber-200 bg-amber-50' }} p-4">
+                        <div class="flex items-start gap-3">
+                            @if ($baseNumbersCoverage['all_used'])
+                                <svg class="mt-0.5 h-5 w-5 shrink-0 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                </svg>
+                                <p class="text-sm leading-6 text-indigo-800">
+                                    <strong>Excelente!</strong> Todas as {{ $baseNumbersCoverage['total_base'] }} dezenas do seu grupo base foram utilizadas em pelo menos uma aposta gerada.
+                                </p>
+                            @else
+                                <svg class="mt-0.5 h-5 w-5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <div>
+                                    <p class="text-sm leading-6 text-amber-800">
+                                        <strong>Atenção:</strong> Foram utilizadas apenas {{ $baseNumbersCoverage['total_used'] }} das {{ $baseNumbersCoverage['total_base'] }} dezenas do seu grupo base nas apostas geradas. 
+                                    </p>
+                                    <p class="mt-1 text-xs text-amber-700 flex items-center flex-wrap gap-1">
+                                        <span>Dezenas não utilizadas:</span> 
+                                        @foreach ($baseNumbersCoverage['unused_numbers'] as $uNum)
+                                            <span class="inline-flex h-5 w-5 items-center justify-center rounded bg-amber-200/50 font-bold">
+                                                {{ str_pad($uNum, 2, '0', STR_PAD_LEFT) }}
+                                            </span>
+                                        @endforeach
+                                    </p>
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+                @endif
             </section>
 
             {{-- Relatório de Conferência (Exibido quando conferido) --}}
@@ -547,11 +614,23 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         </span>
                         <div class="flex flex-wrap gap-1.5">
                             @foreach ($checkedContestInfo['drawn_numbers'] as $dNum)
-                                <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white shadow-sm">
+                                @php
+                                    $notInBase = in_array($dNum, $checkedContestInfo['drawn_not_in_base'] ?? []);
+                                @endphp
+                                <span @class([
+                                    'inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm transition-colors',
+                                    'bg-rose-500 ring-2 ring-rose-400/50' => $notInBase,
+                                    'bg-emerald-600' => ! $notInBase,
+                                ]) title="{{ $notInBase ? 'Dezena sorteada que não estava no grupo base' : 'Dezena do grupo base' }}">
                                     {{ str_pad($dNum, 2, '0', STR_PAD_LEFT) }}
                                 </span>
                             @endforeach
                         </div>
+                        @if(!empty($checkedContestInfo['drawn_not_in_base']))
+                            <p class="mt-2 text-xs text-rose-600 font-medium">
+                                * As dezenas em vermelho foram sorteadas, mas não estavam presentes no seu grupo base.
+                            </p>
+                        @endif
                     </div>
 
                     {{-- Cards com a Distribuição de Acertos (15, 14, 13, 12, 11) --}}
