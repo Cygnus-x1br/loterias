@@ -37,7 +37,8 @@ new #[Layout('layouts.guest')] class extends Component
 }; ?>
 
 <div>
-    <form wire:submit="register">
+    <form wire:submit="register" method="POST" action="{{ route('register') }}">
+        @csrf
         <!-- Name -->
         <div>
             <label for="name" class="block font-medium text-sm text-gray-200">{{ __('Name') }}</label>

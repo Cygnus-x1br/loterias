@@ -28,7 +28,8 @@ new #[Layout('layouts.guest')] class extends Component
     <!-- Session Status -->
     <x-auth-session-status class="mb-4" :status="session('status')" />
 
-    <form wire:submit="login">
+    <form wire:submit="login" method="POST" action="{{ route('login') }}">
+        @csrf
         <!-- Email Address -->
         <div>
             <label for="email" class="block font-medium text-sm text-gray-200">{{ __('Email') }}</label>
