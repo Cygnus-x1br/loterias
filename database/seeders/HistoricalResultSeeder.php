@@ -37,11 +37,15 @@ class HistoricalResultSeeder extends Seeder
                 if (isset($record['drawn_numbers']) && is_array($record['drawn_numbers'])) {
                     $record['drawn_numbers'] = json_encode($record['drawn_numbers']);
                 }
-                
+
+                if (isset($record['draw_date'])) {
+                    $record['draw_date'] = substr($record['draw_date'], 0, 10);
+                }
+
                 // upsert requer os timestamps manualmente caso não instanciemos os models
                 $record['created_at'] = $now;
                 $record['updated_at'] = $now;
-                
+
                 return $record;
             }, $chunk);
 
