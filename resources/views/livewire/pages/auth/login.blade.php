@@ -31,41 +31,43 @@ new #[Layout('layouts.guest')] class extends Component
     <form wire:submit="login">
         <!-- Email Address -->
         <div>
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input wire:model="form.email" id="email" class="block mt-1 w-full" type="email" name="email" required autofocus autocomplete="username" />
-            <x-input-error :messages="$errors->get('form.email')" class="mt-2" />
+            <label for="email" class="block font-medium text-sm text-gray-200">{{ __('Email') }}</label>
+            <input wire:model="form.email" id="email" class="block mt-1 w-full bg-slate-900/50 border border-white/10 text-white placeholder-gray-400 focus:border-fuchsia-500 focus:ring-fuchsia-500 rounded-md shadow-sm" type="email" name="email" required autofocus autocomplete="username" />
+            <x-input-error :messages="$errors->get('form.email')" class="mt-2 text-red-400" />
         </div>
 
         <!-- Password -->
         <div class="mt-4">
-            <x-input-label for="password" :value="__('Password')" />
-
-            <x-text-input wire:model="form.password" id="password" class="block mt-1 w-full"
+            <label for="password" class="block font-medium text-sm text-gray-200">{{ __('Password') }}</label>
+            <input wire:model="form.password" id="password" class="block mt-1 w-full bg-slate-900/50 border border-white/10 text-white placeholder-gray-400 focus:border-fuchsia-500 focus:ring-fuchsia-500 rounded-md shadow-sm"
                             type="password"
                             name="password"
                             required autocomplete="current-password" />
-
-            <x-input-error :messages="$errors->get('form.password')" class="mt-2" />
+            <x-input-error :messages="$errors->get('form.password')" class="mt-2 text-red-400" />
         </div>
 
         <!-- Remember Me -->
-        <div class="block mt-4">
+        <div class="block mt-4 flex items-center justify-between">
             <label for="remember" class="inline-flex items-center">
-                <input wire:model="form.remember" id="remember" type="checkbox" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500" name="remember">
-                <span class="ms-2 text-sm text-gray-600">{{ __('Remember me') }}</span>
+                <input wire:model="form.remember" id="remember" type="checkbox" class="rounded bg-slate-900/50 border-white/10 text-fuchsia-500 shadow-sm focus:ring-fuchsia-500" name="remember">
+                <span class="ms-2 text-sm text-gray-300">{{ __('Remember me') }}</span>
             </label>
-        </div>
-
-        <div class="flex items-center justify-end mt-4">
+            
             @if (Route::has('password.request'))
-                <a class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" href="{{ route('password.request') }}" wire:navigate>
+                <a class="underline text-sm text-gray-300 hover:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-fuchsia-500 focus:ring-offset-slate-900" href="{{ route('password.request') }}" wire:navigate>
                     {{ __('Forgot your password?') }}
                 </a>
             @endif
+        </div>
 
-            <x-primary-button class="ms-3">
+        <div class="flex items-center justify-between mt-6">
+            <a class="text-sm text-fuchsia-300 hover:text-fuchsia-200 font-medium transition-colors" href="{{ route('register') }}" wire:navigate>
+                Não tem uma conta? Crie aqui
+            </a>
+
+            <button type="submit" class="inline-flex items-center px-6 py-2 bg-fuchsia-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-fuchsia-500 focus:bg-fuchsia-500 active:bg-fuchsia-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:ring-offset-2 focus:ring-offset-slate-900 transition ease-in-out duration-150 shadow-lg shadow-fuchsia-500/30">
                 {{ __('Log in') }}
-            </x-primary-button>
+            </button>
         </div>
     </form>
 </div>

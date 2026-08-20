@@ -40,49 +40,45 @@ new #[Layout('layouts.guest')] class extends Component
     <form wire:submit="register">
         <!-- Name -->
         <div>
-            <x-input-label for="name" :value="__('Name')" />
-            <x-text-input wire:model="name" id="name" class="block mt-1 w-full" type="text" name="name" required autofocus autocomplete="name" />
-            <x-input-error :messages="$errors->get('name')" class="mt-2" />
+            <label for="name" class="block font-medium text-sm text-gray-200">{{ __('Name') }}</label>
+            <input wire:model="name" id="name" class="block mt-1 w-full bg-slate-900/50 border border-white/10 text-white placeholder-gray-400 focus:border-fuchsia-500 focus:ring-fuchsia-500 rounded-md shadow-sm" type="text" name="name" required autofocus autocomplete="name" />
+            <x-input-error :messages="$errors->get('name')" class="mt-2 text-red-400" />
         </div>
 
         <!-- Email Address -->
         <div class="mt-4">
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input wire:model="email" id="email" class="block mt-1 w-full" type="email" name="email" required autocomplete="username" />
-            <x-input-error :messages="$errors->get('email')" class="mt-2" />
+            <label for="email" class="block font-medium text-sm text-gray-200">{{ __('Email') }}</label>
+            <input wire:model="email" id="email" class="block mt-1 w-full bg-slate-900/50 border border-white/10 text-white placeholder-gray-400 focus:border-fuchsia-500 focus:ring-fuchsia-500 rounded-md shadow-sm" type="email" name="email" required autocomplete="username" />
+            <x-input-error :messages="$errors->get('email')" class="mt-2 text-red-400" />
         </div>
 
         <!-- Password -->
         <div class="mt-4">
-            <x-input-label for="password" :value="__('Password')" />
-
-            <x-text-input wire:model="password" id="password" class="block mt-1 w-full"
+            <label for="password" class="block font-medium text-sm text-gray-200">{{ __('Password') }}</label>
+            <input wire:model="password" id="password" class="block mt-1 w-full bg-slate-900/50 border border-white/10 text-white placeholder-gray-400 focus:border-fuchsia-500 focus:ring-fuchsia-500 rounded-md shadow-sm"
                             type="password"
                             name="password"
                             required autocomplete="new-password" />
-
-            <x-input-error :messages="$errors->get('password')" class="mt-2" />
+            <x-input-error :messages="$errors->get('password')" class="mt-2 text-red-400" />
         </div>
 
         <!-- Confirm Password -->
         <div class="mt-4">
-            <x-input-label for="password_confirmation" :value="__('Confirm Password')" />
-
-            <x-text-input wire:model="password_confirmation" id="password_confirmation" class="block mt-1 w-full"
+            <label for="password_confirmation" class="block font-medium text-sm text-gray-200">{{ __('Confirm Password') }}</label>
+            <input wire:model="password_confirmation" id="password_confirmation" class="block mt-1 w-full bg-slate-900/50 border border-white/10 text-white placeholder-gray-400 focus:border-fuchsia-500 focus:ring-fuchsia-500 rounded-md shadow-sm"
                             type="password"
                             name="password_confirmation" required autocomplete="new-password" />
-
-            <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2" />
+            <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2 text-red-400" />
         </div>
 
-        <div class="flex items-center justify-end mt-4">
-            <a class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" href="{{ route('login') }}" wire:navigate>
-                {{ __('Already registered?') }}
+        <div class="flex items-center justify-between mt-6">
+            <a class="text-sm text-fuchsia-300 hover:text-fuchsia-200 font-medium transition-colors" href="{{ route('login') }}" wire:navigate>
+                Já possui uma conta? Faça login
             </a>
 
-            <x-primary-button class="ms-4">
+            <button type="submit" class="inline-flex items-center px-6 py-2 bg-fuchsia-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-fuchsia-500 focus:bg-fuchsia-500 active:bg-fuchsia-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:ring-offset-2 focus:ring-offset-slate-900 transition ease-in-out duration-150 shadow-lg shadow-fuchsia-500/30">
                 {{ __('Register') }}
-            </x-primary-button>
+            </button>
         </div>
     </form>
 </div>
