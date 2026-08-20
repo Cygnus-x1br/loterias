@@ -19,10 +19,14 @@ RUN apk add --no-cache \
     mariadb-client \
     git \
     oniguruma-dev \
-    icu-dev
+    icu-dev \
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev
 
 # Instala extensões do PHP necessárias para o Laravel
-RUN docker-php-ext-install pdo_mysql mbstring zip exif pcntl bcmath intl
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install pdo_mysql mbstring zip exif pcntl bcmath intl gd
 
 # Instala Composer
 COPY --from=composer:2.7 /usr/bin/composer /usr/bin/composer
