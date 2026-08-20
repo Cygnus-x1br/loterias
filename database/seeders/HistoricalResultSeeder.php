@@ -31,8 +31,21 @@ class HistoricalResultSeeder extends Seeder
 
         $this->command->info('Semeando '.count($records).' resultados históricos da Lotofácil...');
 
+        $now = now();
         foreach (array_chunk($records, 500) as $chunk) {
-            HistoricalResult::upsert($chunk, ['contest_number'], [
+            $formattedChunk = array_map(function ($record) use ($now) {
+                if (isset($record['drawn_numbers']) && is_array($record['drawn_numbers'])) {
+                    $record['drawn_numbers'] = json_encode($record['drawn_numbers']);
+                }
+                
+                // upsert requer os timestamps manualmente caso não instanciemos os models
+                $record['created_at'] = $now;
+                $record['updated_at'] = $now;
+                
+                return $record;
+            }, $chunk);
+
+            HistoricalResult::upsert($formattedChunk, ['contest_number'], [
                 'draw_date',
                 'drawn_numbers',
                 'drawn_numbers_hash',
@@ -46,6 +59,7 @@ class HistoricalResultSeeder extends Seeder
                 'payout_12_hits',
                 'winners_11_hits',
                 'payout_11_hits',
+                'updated_at',
             ]);
         }
 
