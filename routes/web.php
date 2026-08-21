@@ -67,4 +67,12 @@ Route::middleware('auth')
             ->name('index');
     });
 
+Route::middleware('auth')
+    ->prefix('simulacoes')
+    ->name('simulations.')
+    ->group(function () {
+        Volt::route('/', 'pages.simulations.index')
+            ->name('index');
+    });
+
 require __DIR__.'/auth.php';

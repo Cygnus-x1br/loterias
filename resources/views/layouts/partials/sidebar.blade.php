@@ -107,7 +107,13 @@
                         Otimização
                     </a>
 
-                    <a href="#" class="sidebar-link">
+                    <a
+                        href="{{ route('simulations.index') }}"
+                        @class([
+                            'sidebar-link',
+                            'bg-indigo-50 !text-indigo-700 font-semibold' => request()->routeIs('simulations.*'),
+                        ])
+                    >
                         <span>◌</span>
                         Simulações
                     </a>
