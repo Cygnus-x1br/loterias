@@ -468,6 +468,19 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                     </div>
 
                     <div class="flex flex-wrap items-center gap-2.5">
+                        {{-- Botão Imprimir Jogos --}}
+                        @if ($closing->bets()->count() > 0)
+                            <a
+                                href="{{ route('closings.print', $closing) }}"
+                                class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-indigo-600"
+                            >
+                                <svg class="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                </svg>
+                                Imprimir Jogos
+                            </a>
+                        @endif
+
                         {{-- Botão Marcar como Apostado --}}
                         @if (in_array($closing->status, ['completed', 'placed', 'checked']))
                             <button
