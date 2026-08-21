@@ -141,12 +141,36 @@ class BalancedBetGenerator implements BetGeneratorInterface
         }
 
         $lastDrawnNumbers = null;
+        $repeatedQuotas = [];
+        $repeatedPool = [];
+        $nonRepeatedPool = $baseNumbers;
+
         if (isset($parameters['repeated_last_draw'])) {
             if (isset($parameters['last_contest_numbers']) && is_array($parameters['last_contest_numbers'])) {
                 $lastDrawnNumbers = $parameters['last_contest_numbers'];
             } else {
                 $lastContest = app(LotofacilStatisticsService::class)->getLastContest();
                 $lastDrawnNumbers = $lastContest ? $lastContest->drawn_numbers : null;
+                if (is_string($lastDrawnNumbers)) {
+                    $lastDrawnNumbers = json_decode($lastDrawnNumbers, true);
+                }
+            }
+            
+            if ($lastDrawnNumbers) {
+                $repeatedPool = array_values(array_intersect($baseNumbers, $lastDrawnNumbers));
+                $nonRepeatedPool = array_values(array_diff($baseNumbers, $lastDrawnNumbers));
+
+                $minRep = max($parameters['repeated_last_draw'][0], 0);
+                $maxRep = min($parameters['repeated_last_draw'][1], count($repeatedPool));
+
+                // Garante limites físicos
+                $minRep = max($minRep, $betSize - count($nonRepeatedPool));
+                
+                if ($minRep <= $maxRep) {
+                    $repeatedQuotas = app(LotofacilStatisticsService::class)->calculateRepetitionQuotas(
+                        $minRep, $maxRep, $plannedBets
+                    );
+                }
             }
         }
 
@@ -157,69 +181,192 @@ class BalancedBetGenerator implements BetGeneratorInterface
 
         $generatedCount = 0;
         $attempts = 0;
-        $maxAttemptsPerBet = 1000; // Limite de tentativas para encontrar uma aposta válida
-        $uniqueBets = []; // Para garantir apostas únicas
+        $maxAttemptsPerBet = 2000;
+        $uniqueBets = [];
+        $rejectionStats = [];
 
-        while ($generatedCount < $plannedBets && $attempts < ($plannedBets * $maxAttemptsPerBet)) {
-            $currentBet = $this->generateRandomCombination($baseNumbers, $betSize);
-            sort($currentBet); // Garante ordem para comparação de unicidade
-
-            if (in_array($currentBet, $uniqueBets, true)) {
-                $attempts++;
-
-                continue;
+        // Expande as cotas em um array de "alvos" de repetição
+        $repetitionTargets = [];
+        foreach ($repeatedQuotas as $rep => $quota) {
+            for ($i = 0; $i < $quota; $i++) {
+                $repetitionTargets[] = $rep;
             }
+        }
+        
+        // Preenche com random se faltar alvos
+        while (count($repetitionTargets) < $plannedBets) {
+            $repetitionTargets[] = null; 
+        }
+        
+        // Embaralha os alvos para distribuir as repetições
+        shuffle($repetitionTargets);
 
-            if ($this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures)) {
-                yield $currentBet;
-                $uniqueBets[] = $currentBet;
-                $generatedCount++;
-                $attempts = 0; // Reseta tentativas para a próxima aposta
-            } else {
+        // Tracking de uso das dezenas para balancear a base
+        $usageCount = array_fill_keys($baseNumbers, 0);
+
+        foreach ($repetitionTargets as $targetRepetitions) {
+            $betFound = false;
+            $attempts = 0;
+            
+            // Tolerância dinâmica: a cada 500 tentativas, relaxamos um pouco as regras
+            while ($attempts < $maxAttemptsPerBet) {
+                $tolerance = floor($attempts / 500); 
+                
+                if ($targetRepetitions !== null && !empty($lastDrawnNumbers)) {
+                    $currentBet = $this->generateStratifiedCombination($repeatedPool, $nonRepeatedPool, $targetRepetitions, $betSize, $usageCount);
+                } else {
+                    $currentBet = $this->generateRandomCombination($baseNumbers, $betSize, $usageCount);
+                }
+                
+                sort($currentBet);
+
+                if (!in_array($currentBet, $uniqueBets, true)) {
+                    $failedReason = null;
+                    if ($this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures, $tolerance, $failedReason)) {
+                        yield $currentBet;
+                        $uniqueBets[] = $currentBet;
+                        $generatedCount++;
+                        
+                        // Atualiza o uso para balancear próximas apostas
+                        foreach ($currentBet as $num) {
+                            $usageCount[$num]++;
+                        }
+                        
+                        $betFound = true;
+                        break;
+                    } else {
+                        if ($failedReason) {
+                            $rejectionStats[$failedReason] = ($rejectionStats[$failedReason] ?? 0) + 1;
+                        }
+                    }
+                }
                 $attempts++;
+            }
+            
+            if (!$betFound) {
+                // Se não achou com tolerância, tenta sem os parâmetros rigorosos mas respeitando a cota
+                while ($attempts < $maxAttemptsPerBet + 500) {
+                    // Se nas últimas 250 tentativas não achou, significa que a cota esgotou matematicamente (ex: só existe 1 combinação possível com 9 repetidas, mas a cota pediu 2 jogos)
+                    // Solução: relaxa a cota e gera randomicamente do grupo base para garantir o preenchimento.
+                    if ($attempts > $maxAttemptsPerBet + 250) {
+                        $currentBet = $this->generateRandomCombination($baseNumbers, $betSize, $usageCount);
+                    } elseif ($targetRepetitions !== null && !empty($lastDrawnNumbers)) {
+                        $currentBet = $this->generateStratifiedCombination($repeatedPool, $nonRepeatedPool, $targetRepetitions, $betSize, $usageCount);
+                    } else {
+                        $currentBet = $this->generateRandomCombination($baseNumbers, $betSize, $usageCount);
+                    }
+                    sort($currentBet);
+                    if (!in_array($currentBet, $uniqueBets, true)) {
+                        yield $currentBet;
+                        $uniqueBets[] = $currentBet;
+                        $generatedCount++;
+                        
+                        foreach ($currentBet as $num) {
+                            $usageCount[$num]++;
+                        }
+                        break;
+                    }
+                    $attempts++;
+                }
             }
         }
 
         if ($generatedCount < $plannedBets) {
+            $reasonMsg = '';
+            if (!empty($rejectionStats)) {
+                arsort($rejectionStats);
+                $topReason = array_key_first($rejectionStats);
+                $reasonMsg = " O principal fator de bloqueio durante a geração foi: '{$topReason}'. Tente flexibilizar este filtro.";
+            }
+
             throw new LogicException(
-                "Não foi possível gerar {$plannedBets} apostas equilibradas únicas com os parâmetros fornecidos. Foram geradas {$generatedCount}."
+                "Não foi possível gerar {$plannedBets} apostas equilibradas únicas com os parâmetros fornecidos. Foram geradas {$generatedCount}." . $reasonMsg
             );
         }
     }
 
     /**
-     * Gera uma combinação aleatória de dezenas do grupo-base.
+     * Gera uma combinação aleatória de dezenas priorizando as menos utilizadas.
      *
      * @param  array<int>  $baseNumbers
+     * @param  int  $betSize
+     * @param  array<int, int>  $usageCount
      * @return array<int>
      */
-    protected function generateRandomCombination(array $baseNumbers, int $betSize): array
+    protected function generateRandomCombination(array $baseNumbers, int $betSize, array $usageCount = []): array
     {
-        shuffle($baseNumbers);
-
-        return array_slice($baseNumbers, 0, $betSize);
+        if (empty($usageCount)) {
+            shuffle($baseNumbers);
+            return array_slice($baseNumbers, 0, $betSize);
+        }
+        
+        // Pondera a seleção para favorecer dezenas menos usadas (objetivo: usar todo o fechamento)
+        $weightedPool = [];
+        $maxUsage = max($usageCount) ?: 1;
+        foreach ($baseNumbers as $num) {
+            $weight = max(1, $maxUsage - $usageCount[$num] + 1);
+            for ($i = 0; $i < $weight; $i++) {
+                $weightedPool[] = $num;
+            }
+        }
+        
+        $selected = [];
+        while (count($selected) < $betSize) {
+            $idx = array_rand($weightedPool);
+            $num = $weightedPool[$idx];
+            if (!in_array($num, $selected, true)) {
+                $selected[] = $num;
+            }
+        }
+        
+        return $selected;
     }
 
     /**
-     * Verifica se uma aposta atende aos critérios de equilíbrio.
+     * Gera uma combinação respeitando cotas exatas de repetição.
+     */
+    protected function generateStratifiedCombination(array $repeatedPool, array $nonRepeatedPool, int $targetRepetitions, int $betSize, array $usageCount): array
+    {
+        $targetRepetitions = min($targetRepetitions, count($repeatedPool));
+        $targetNonRepetitions = $betSize - $targetRepetitions;
+        
+        // Ajusta se não houver dezenas não-repetidas suficientes
+        if ($targetNonRepetitions > count($nonRepeatedPool)) {
+            $targetNonRepetitions = count($nonRepeatedPool);
+            $targetRepetitions = $betSize - $targetNonRepetitions;
+        }
+
+        $repSelection = $this->generateRandomCombination($repeatedPool, $targetRepetitions, $usageCount);
+        $nonRepSelection = $this->generateRandomCombination($nonRepeatedPool, $targetNonRepetitions, $usageCount);
+
+        return array_merge($repSelection, $nonRepSelection);
+    }
+
+    /**
+     * Verifica se uma aposta atende aos critérios de equilíbrio com tolerância.
      *
      * @param  array<int>  $bet
      * @param  array<string, mixed>  $parameters
+     * @param  int $betSize
      * @param  array<int>|null  $lastDrawnNumbers
      * @param  array<int, array<string, mixed>>|null  $temperatures
+     * @param  int $tolerance Margem de flexibilidade
      */
     protected function isBalanced(
         array $bet,
         array $parameters,
         int $betSize,
         ?array $lastDrawnNumbers = null,
-        ?array $temperatures = null
+        ?array $temperatures = null,
+        int $tolerance = 0,
+        &$failedReason = null
     ): bool {
-        // Equilíbrio Par/Ímpar
+        // Equilíbrio Par/Ímpar com Tolerância
         if (isset($parameters['even_odd_balance'])) {
             $evenCount = count(array_filter($bet, fn ($n) => $n % 2 === 0));
             [$minEven, $maxEven] = $parameters['even_odd_balance'];
-            if ($evenCount < $minEven || $evenCount > $maxEven) {
+            if ($evenCount < ($minEven - $tolerance) || $evenCount > ($maxEven + $tolerance)) {
+                $failedReason = 'Equilíbrio Par/Ímpar';
                 return false;
             }
         }
@@ -229,6 +376,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $sum = array_sum($bet);
             [$minSum, $maxSum] = $parameters['sum_range'];
             if ($sum < $minSum || $sum > $maxSum) {
+                $failedReason = 'Faixa de Soma';
                 return false;
             }
         }
@@ -238,6 +386,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $primesInBet = count(array_intersect($bet, self::PRIMES));
             [$minPrimes, $maxPrimes] = $parameters['primes_count'];
             if ($primesInBet < $minPrimes || $primesInBet > $maxPrimes) {
+                $failedReason = 'Contagem de Primos';
                 return false;
             }
         }
@@ -247,6 +396,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $fibonacciInBet = count(array_intersect($bet, self::FIBONACCI));
             [$minFibonacci, $maxFibonacci] = $parameters['fibonacci_count'];
             if ($fibonacciInBet < $minFibonacci || $fibonacciInBet > $maxFibonacci) {
+                $failedReason = 'Contagem de Fibonacci';
                 return false;
             }
         }
@@ -256,6 +406,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $repeatedCount = count(array_intersect($bet, $lastDrawnNumbers));
             [$minRepeated, $maxRepeated] = $parameters['repeated_last_draw'];
             if ($repeatedCount < $minRepeated || $repeatedCount > $maxRepeated) {
+                $failedReason = 'Repetidas do Último Sorteio';
                 return false;
             }
         }
@@ -266,6 +417,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $totalScore = $scoreData['total_score'] ?? 0;
             [$minScore, $maxScore] = $parameters['score_range'];
             if ($totalScore < $minScore || $totalScore > $maxScore) {
+                $failedReason = 'Faixa de Score';
                 return false;
             }
         }
@@ -295,21 +447,24 @@ class BalancedBetGenerator implements BetGeneratorInterface
 
             if (isset($tempRules['hot'])) {
                 [$minHot, $maxHot] = $tempRules['hot'];
-                if ($hotCount < $minHot || $hotCount > $maxHot) {
+                if ($hotCount < ($minHot - $tolerance) || $hotCount > ($maxHot + $tolerance)) {
+                    $failedReason = 'Dezenas Quentes';
                     return false;
                 }
             }
 
             if (isset($tempRules['neutral'])) {
                 [$minNeutral, $maxNeutral] = $tempRules['neutral'];
-                if ($neutralCount < $minNeutral || $neutralCount > $maxNeutral) {
+                if ($neutralCount < ($minNeutral - $tolerance) || $neutralCount > ($maxNeutral + $tolerance)) {
+                    $failedReason = 'Dezenas Neutras';
                     return false;
                 }
             }
 
             if (isset($tempRules['cold'])) {
                 [$minCold, $maxCold] = $tempRules['cold'];
-                if ($coldCount < $minCold || $coldCount > $maxCold) {
+                if ($coldCount < ($minCold - $tolerance) || $coldCount > ($maxCold + $tolerance)) {
+                    $failedReason = 'Dezenas Frias';
                     return false;
                 }
             }

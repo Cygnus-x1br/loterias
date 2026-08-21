@@ -750,4 +750,101 @@ class LotofacilStatisticsService
             ];
         });
     }
+
+    /**
+     * Calcula as cotas de repetição baseadas no atraso (delay) do histórico recente.
+     * Dá preferência para repetições que estão mais "atrasadas" no histórico.
+     *
+     * @param int $minRepeated
+     * @param int $maxRepeated
+     * @param int $totalGames
+     * @param int $historyLimit
+     * @return array
+     */
+    public function calculateRepetitionQuotas(int $minRepeated, int $maxRepeated, int $totalGames, int $historyLimit = 50): array
+    {
+        $cacheKey = "repetition_quotas_{$minRepeated}_{$maxRepeated}_{$totalGames}_{$historyLimit}";
+
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($minRepeated, $maxRepeated, $totalGames, $historyLimit) {
+            $results = HistoricalResult::orderByDesc('contest_number')
+                ->take($historyLimit + 1)
+                ->get(['contest_number', 'drawn_numbers'])
+                ->reverse()
+                ->values();
+
+            $history = [];
+            for ($i = 1; $i < $results->count(); $i++) {
+                $prev = is_array($results[$i - 1]->drawn_numbers) ? $results[$i - 1]->drawn_numbers : json_decode((string) $results[$i - 1]->drawn_numbers, true);
+                $curr = is_array($results[$i]->drawn_numbers) ? $results[$i]->drawn_numbers : json_decode((string) $results[$i]->drawn_numbers, true);
+
+                if (is_array($prev) && is_array($curr)) {
+                    $repeated = count(array_intersect($prev, $curr));
+                    $history[] = $repeated;
+                }
+            }
+
+            // Inverte o histórico para que o índice 0 seja o sorteio mais recente
+            $history = array_reverse($history);
+
+            $delays = [];
+            for ($i = $minRepeated; $i <= $maxRepeated; $i++) {
+                $delays[$i] = count($history); // Máximo possível como padrão (nunca saiu na janela)
+                foreach ($history as $index => $rep) {
+                    if ($rep === $i) {
+                        $delays[$i] = $index;
+                        break;
+                    }
+                }
+            }
+
+            // Cálculo do peso: Peso = Delay + 1 (evita peso 0 para o mais recente)
+            $weights = [];
+            $totalWeight = 0;
+            foreach ($delays as $rep => $delay) {
+                $weight = $delay + 1;
+                $weights[$rep] = $weight;
+                $totalWeight += $weight;
+            }
+
+            $quotas = [];
+            $remainingGames = $totalGames;
+            $remainders = [];
+
+            if ($totalWeight > 0) {
+                foreach ($weights as $rep => $weight) {
+                    $exactQuota = ($weight / $totalWeight) * $totalGames;
+                    $quotas[$rep] = (int) floor($exactQuota);
+                    $remainders[$rep] = $exactQuota - $quotas[$rep];
+                    $remainingGames -= $quotas[$rep];
+                }
+
+                // Distribui os jogos restantes com base no maior resto decimal
+                arsort($remainders);
+                foreach ($remainders as $rep => $remainder) {
+                    if ($remainingGames > 0) {
+                        $quotas[$rep]++;
+                        $remainingGames--;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                // Fallback de distribuição igualitária
+                $options = range($minRepeated, $maxRepeated);
+                foreach ($options as $opt) {
+                    $quotas[$opt] = 0;
+                }
+                while ($remainingGames > 0) {
+                    foreach ($options as $opt) {
+                        if ($remainingGames > 0) {
+                            $quotas[$opt]++;
+                            $remainingGames--;
+                        }
+                    }
+                }
+            }
+
+            return $quotas;
+        });
+    }
 }
