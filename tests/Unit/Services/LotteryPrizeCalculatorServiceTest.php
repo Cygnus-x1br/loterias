@@ -17,20 +17,20 @@ class LotteryPrizeCalculatorServiceTest extends TestCase
 
     public function test_get_bet_cost_returns_correct_value(): void
     {
-        $this->assertEquals(3.00, $this->service->getBetCost(15));
-        $this->assertEquals(48.00, $this->service->getBetCost(16));
-        $this->assertEquals(408.00, $this->service->getBetCost(17));
-        $this->assertEquals(2448.00, $this->service->getBetCost(18));
-        $this->assertEquals(11628.00, $this->service->getBetCost(19));
-        $this->assertEquals(46512.00, $this->service->getBetCost(20));
+        $this->assertEquals(3.50, $this->service->getBetCost(15));
+        $this->assertEquals(56.00, $this->service->getBetCost(16));
+        $this->assertEquals(476.00, $this->service->getBetCost(17));
+        $this->assertEquals(2856.00, $this->service->getBetCost(18));
+        $this->assertEquals(13566.00, $this->service->getBetCost(19));
+        $this->assertEquals(54264.00, $this->service->getBetCost(20));
         $this->assertEquals(0.00, $this->service->getBetCost(21));
     }
 
     public function test_get_fixed_prize_amount_returns_correct_value(): void
     {
-        $this->assertEquals(6.00, $this->service->getFixedPrizeAmount(11));
-        $this->assertEquals(12.00, $this->service->getFixedPrizeAmount(12));
-        $this->assertEquals(30.00, $this->service->getFixedPrizeAmount(13));
+        $this->assertEquals(7.00, $this->service->getFixedPrizeAmount(11));
+        $this->assertEquals(14.00, $this->service->getFixedPrizeAmount(12));
+        $this->assertEquals(35.00, $this->service->getFixedPrizeAmount(13));
         $this->assertEquals(0.00, $this->service->getFixedPrizeAmount(14));
     }
 
@@ -67,23 +67,26 @@ class LotteryPrizeCalculatorServiceTest extends TestCase
         $payouts = [
             'payout_15_hits' => 1000000.00,
             'payout_14_hits' => 1500.00,
+            'payout_13_hits' => 35.00,
+            'payout_12_hits' => 14.00,
+            'payout_11_hits' => 7.00,
         ];
 
         // 1. Simples (15 dezenas, acerto de 15) => R$ 1.000.000,00
         $total = $this->service->calculateTotalPrizeAmount(15, 15, $payouts);
         $this->assertEquals(1000000.00, $total);
 
-        // 2. Simples (15 dezenas, acerto de 13) => R$ 30,00
+        // 2. Simples (15 dezenas, acerto de 13) => R$ 35,00
         $total = $this->service->calculateTotalPrizeAmount(15, 13, $payouts);
-        $this->assertEquals(30.00, $total);
+        $this->assertEquals(35.00, $total);
 
         // 3. Múltipla (16 dezenas, acerto de 14) => 2 prêmios de 14 e 14 prêmios de 13
-        // 2 * 1500 + 14 * 30 = 3000 + 420 = R$ 3.420,00
+        // 2 * 1500 + 14 * 35 = 3000 + 490 = R$ 3.490,00
         $total = $this->service->calculateTotalPrizeAmount(16, 14, $payouts);
-        $this->assertEquals(3420.00, $total);
+        $this->assertEquals(3490.00, $total);
 
-        // 4. Múltipla (18 dezenas, acerto de 12) => 20 de 12 (12 * 20 = 240) e 200 de 11 (200 * 6 = 1200) = R$ 1.440,00
+        // 4. Múltipla (18 dezenas, acerto de 12) => 20 de 12 (14 * 20 = 280) e 200 de 11 (200 * 7 = 1400) = R$ 1.680,00
         $total = $this->service->calculateTotalPrizeAmount(18, 12, $payouts);
-        $this->assertEquals(1440.00, $total);
+        $this->assertEquals(1680.00, $total);
     }
 }

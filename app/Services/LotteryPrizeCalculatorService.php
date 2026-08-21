@@ -4,32 +4,46 @@ namespace App\Services;
 
 class LotteryPrizeCalculatorService
 {
-    /**
-     * Retorna o custo em Reais (R$) para uma aposta com o tamanho dado de dezenas.
-     * Valores referentes à tabela atualizada da Lotofácil (base: R$ 3,00 para 15 dezenas).
-     */
-    public function getBetCost(int $betSize): float
-    {
-        return match ($betSize) {
-            15 => 3.00,
-            16 => 48.00,
-            17 => 408.00,
-            18 => 2448.00,
-            19 => 11628.00,
-            20 => 46512.00,
-            default => 0.00,
-        };
+    public function __construct(
+        private ?LotofacilSettingService $settingService = null
+    ) {
+        $this->settingService = $settingService ?? app(LotofacilSettingService::class);
     }
 
     /**
-     * Retorna o valor fixo dos prêmios de 11, 12 e 13 acertos.
+     * Retorna o custo em Reais (R$) para uma aposta com o tamanho dado de dezenas,
+     * consultando a tabela de configurações persistida no sistema.
+     */
+    public function getBetCost(int $betSize): float
+    {
+        if ($betSize < 15 || $betSize > 20) {
+            return 0.00;
+        }
+
+        try {
+            return $this->settingService->getPriceFor($betSize);
+        } catch (\Throwable) {
+            return match ($betSize) {
+                15 => 3.50,
+                16 => 56.00,
+                17 => 476.00,
+                18 => 2856.00,
+                19 => 13566.00,
+                20 => 54264.00,
+                default => 0.00,
+            };
+        }
+    }
+
+    /**
+     * Retorna o valor fixo dos prêmios de 11, 12 e 13 acertos (base: aposta R$ 3,50).
      */
     public function getFixedPrizeAmount(int $hits): float
     {
         return match ($hits) {
-            11 => 6.00,
-            12 => 12.00,
-            13 => 30.00,
+            11 => 7.00,
+            12 => 14.00,
+            13 => 35.00,
             default => 0.00,
         };
     }
@@ -99,8 +113,8 @@ class LotteryPrizeCalculatorService
 
     /**
      * Calcula o valor financeiro total de prêmios conquistados.
-     * $payouts: um array associativo contendo os valores de rateio de 14 e 15 pontos do concurso específico.
-     * Exemplo: ['payout_15_hits' => 1000000.00, 'payout_14_hits' => 1500.00]
+     * $payouts: um array associativo contendo os valores de rateio do concurso específico.
+     * Exemplo: ['payout_15_hits' => 1000000.00, 'payout_14_hits' => 1500.00, 'payout_13_hits' => 35.00, ...]
      */
     public function calculateTotalPrizeAmount(int $betSize, int $hits, array $payouts = []): float
     {
@@ -109,9 +123,21 @@ class LotteryPrizeCalculatorService
 
         foreach ($prizes as $category => $quantity) {
             $amountPerCategory = match ($category) {
-                15 => (float) ($payouts['payout_15_hits'] ?? 0),
-                14 => (float) ($payouts['payout_14_hits'] ?? 0),
-                13, 12, 11 => $this->getFixedPrizeAmount($category),
+                15 => ! empty($payouts['payout_15_hits']) && (float) $payouts['payout_15_hits'] > 0
+                    ? (float) $payouts['payout_15_hits']
+                    : 1500000.00,
+                14 => ! empty($payouts['payout_14_hits']) && (float) $payouts['payout_14_hits'] > 0
+                    ? (float) $payouts['payout_14_hits']
+                    : 1500.00,
+                13 => ! empty($payouts['payout_13_hits']) && (float) $payouts['payout_13_hits'] > 0
+                    ? (float) $payouts['payout_13_hits']
+                    : $this->getFixedPrizeAmount(13),
+                12 => ! empty($payouts['payout_12_hits']) && (float) $payouts['payout_12_hits'] > 0
+                    ? (float) $payouts['payout_12_hits']
+                    : $this->getFixedPrizeAmount(12),
+                11 => ! empty($payouts['payout_11_hits']) && (float) $payouts['payout_11_hits'] > 0
+                    ? (float) $payouts['payout_11_hits']
+                    : $this->getFixedPrizeAmount(11),
                 default => 0.00,
             };
 

@@ -106,6 +106,9 @@ new #[Layout('layouts.app', ['title' => 'Simulações e Backtesting'])] class ex
             $payouts = [
                 'payout_15_hits' => $contest->payout_15_hits,
                 'payout_14_hits' => $contest->payout_14_hits,
+                'payout_13_hits' => $contest->payout_13_hits,
+                'payout_12_hits' => $contest->payout_12_hits,
+                'payout_11_hits' => $contest->payout_11_hits,
             ];
 
             foreach ($betNumbersArray as $betNums) {

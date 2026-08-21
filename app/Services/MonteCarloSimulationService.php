@@ -11,7 +11,7 @@ class MonteCarloSimulationService
     ) {}
 
     /**
-     * Executa o método de Monte Carlo gerando $numberOfSimulations concursos fictícios 
+     * Executa o método de Monte Carlo gerando $numberOfSimulations concursos fictícios
      * e testando contra os volantes do Fechamento passado.
      */
     public function runSimulation(Closing $closing, int $numberOfSimulations = 10000): array
@@ -21,9 +21,9 @@ class MonteCarloSimulationService
 
         $totalCost = 0.0;
         $totalPrizesAmount = 0.0;
-        
+
         $hitsDistribution = [
-            15 => 0, 14 => 0, 13 => 0, 12 => 0, 11 => 0, 'less' => 0
+            15 => 0, 14 => 0, 13 => 0, 12 => 0, 11 => 0, 'less' => 0,
         ];
 
         // Calcular custo das apostas
@@ -37,10 +37,13 @@ class MonteCarloSimulationService
             $betNumbersArray[] = array_map('intval', $nums);
         }
 
-        // Payouts estimativos fixos para Monte Carlo
+        // Payouts estimativos para Monte Carlo (base aposta R$ 3,50)
         $simulatedPayouts = [
-            'payout_15_hits' => 1200000.00, // 1.2 Milhão estimado para 15 pontos
+            'payout_15_hits' => 1500000.00, // 1.5 Milhão estimado para 15 pontos
             'payout_14_hits' => 1500.00,    // 1500 Reais estimado para 14 pontos
+            'payout_13_hits' => 35.00,      // R$ 35,00 fixo
+            'payout_12_hits' => 14.00,      // R$ 14,00 fixo
+            'payout_11_hits' => 7.00,       // R$ 7,00 fixo
         ];
 
         // Gera os resultados (Sorteios aleatórios)
@@ -49,10 +52,10 @@ class MonteCarloSimulationService
 
             foreach ($betNumbersArray as $betNums) {
                 $hits = count(array_intersect($betNums, $drawnNumbers));
-                
+
                 if ($hits >= 11) {
                     $hitsDistribution[$hits]++;
-                    
+
                     $prize = $this->prizeCalculator->calculateTotalPrizeAmount($betSize, $hits, $simulatedPayouts);
                     $totalPrizesAmount += $prize;
                 } else {
@@ -85,7 +88,7 @@ class MonteCarloSimulationService
         shuffle($pool);
         $drawn = array_slice($pool, 0, 15);
         sort($drawn);
-        
+
         return $drawn;
     }
 }
