@@ -940,11 +940,18 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 $hotCount = 0;
                 $neutralCount = 0;
                 $coldCount = 0;
+                $repeatedLastDrawCount = 0;
+                $lastDrawn = app(\App\Services\LotofacilStatisticsService::class)->getLastContestWithSum()['result']['drawn_numbers'] ?? [];
+                
                 foreach ($base_numbers as $num) {
                     $t = $numberTemperatures[$num]['temperature'] ?? 'neutral';
                     if ($t === 'hot') $hotCount++;
                     elseif ($t === 'cold') $coldCount++;
                     else $neutralCount++;
+                    
+                    if (in_array($num, $lastDrawn)) {
+                        $repeatedLastDrawCount++;
+                    }
                 }
             @endphp
 
@@ -952,6 +959,10 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 <div class="flex items-center gap-1.5 font-medium text-slate-600">
                     <span class="font-semibold text-slate-800">Composição do Grupo:</span>
                     <span>{{ count($base_numbers) }} dezenas selecionadas</span>
+                    @if(count($lastDrawn) > 0)
+                        <span class="text-slate-300">|</span>
+                        <span class="text-indigo-600 font-semibold">{{ $repeatedLastDrawCount }} repetidas do último sorteio</span>
+                    @endif
                 </div>
 
                 <div class="flex items-center gap-3">
