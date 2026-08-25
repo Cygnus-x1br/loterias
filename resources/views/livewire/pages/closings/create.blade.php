@@ -4,6 +4,7 @@ use App\Models\Closing;
 use App\Services\LotofacilStatisticsService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Volt\Component;
@@ -445,6 +446,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         }
         $this->resetValidation('fixed_numbers');
         $this->resetValidation('variable_numbers');
+        $this->adjustPlannedBets();
     }
 
     public function toggleVariableNumber(int $number): void
@@ -462,6 +464,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         }
         $this->resetValidation('fixed_numbers');
         $this->resetValidation('variable_numbers');
+        $this->adjustPlannedBets();
     }
 
     public function clearNumbers(): void
@@ -478,8 +481,81 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         $this->resetValidation('fixed_numbers');
         $this->resetValidation('variable_numbers');
         $this->resetValidation('wheel_size');
+        $this->adjustPlannedBets();
         $this->resetValidation('guarantee_hits'); // Resetar validação
         $this->resetValidation('guarantee_points'); // Resetar validação
+    }
+
+    #[Computed]
+    public function suggestedBetsStats(): array
+    {
+        $baseCount = count($this->base_numbers);
+        $betSize = (int) $this->bet_size;
+
+        if ($baseCount < $betSize) {
+            return ['min' => 1, 'ideal' => 1, 'full' => 1];
+        }
+
+        $full = \App\Services\Betting\Math\Combinatorics::countCombinations($baseCount, $betSize);
+
+        if ($this->method === 'integral') {
+            return ['min' => $full, 'ideal' => $full, 'full' => $full];
+        }
+
+        if ($this->method === 'reduced') {
+            $points = (int) ($this->guarantee_points ?: 14);
+            $hits = (int) ($this->guarantee_hits ?: 15);
+            
+            $pointsCombinations = \App\Services\Betting\Math\Combinatorics::countCombinations($betSize, $points);
+            $basePointsCombinations = \App\Services\Betting\Math\Combinatorics::countCombinations($baseCount, $points);
+            
+            $min = $pointsCombinations > 0 ? max(1, (int) ceil($basePointsCombinations / $pointsCombinations)) : 1;
+            
+            $ideal = min($full, $min * 3);
+            
+            return ['min' => $min, 'ideal' => $ideal, 'full' => $full];
+        }
+
+        if ($this->method === 'wheel') {
+            $fixedCount = count($this->fixed_numbers);
+            $variableCount = count($this->variable_numbers);
+            
+            if ($fixedCount >= $betSize || $variableCount === 0) {
+                return ['min' => 1, 'ideal' => 1, 'full' => 1];
+            }
+            
+            $neededVariable = $betSize - $fixedCount;
+            $wheelFull = \App\Services\Betting\Math\Combinatorics::countCombinations($variableCount, $neededVariable);
+            
+            return ['min' => 1, 'ideal' => max(1, (int) ceil($wheelFull / 2)), 'full' => $wheelFull];
+        }
+
+        // Aleatório ou Equilibrado
+        return ['min' => 1, 'ideal' => min(100, $full), 'full' => $full];
+    }
+
+    public function updatedMethod(): void
+    {
+        $this->adjustPlannedBets();
+    }
+
+    public function updatedBetSize(): void
+    {
+        $this->adjustPlannedBets();
+    }
+
+    private function adjustPlannedBets(): void
+    {
+        $stats = $this->suggestedBetsStats();
+        if ($this->planned_bets < $stats['min']) {
+            $this->planned_bets = $stats['min'];
+        } elseif ($this->planned_bets > $stats['full']) {
+            $this->planned_bets = $stats['full'];
+        }
+        
+        if ($this->method === 'integral') {
+            $this->planned_bets = $stats['full'];
+        }
     }
 
     public function selectRandomNumbers(): void
@@ -1116,14 +1192,22 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                         Tamanho da aposta
                     </label>
 
-                    <input
-                        id="bet_size"
-                        type="number"
-                        wire:model="bet_size"
-                        min="15"
-                        max="25"
-                        class="mt-2 block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                    >
+                    <div class="mt-2 flex items-center gap-4">
+                        <input
+                            id="bet_size"
+                            type="range"
+                            wire:model.live="bet_size"
+                            min="15"
+                            max="20"
+                            step="1"
+                            class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                        >
+                        <span class="text-sm font-bold text-indigo-700 w-12 text-center">{{ $bet_size }}</span>
+                    </div>
+                    <div class="flex justify-between text-xs text-slate-400 mt-1 px-1">
+                        <span>15</span>
+                        <span>20</span>
+                    </div>
 
                     @error('bet_size')
                         <p class="mt-2 text-sm font-medium text-rose-600">
@@ -1140,13 +1224,64 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                         Apostas planejadas
                     </label>
 
-                    <input
-                        id="planned_bets"
-                        type="number"
-                        wire:model="planned_bets"
-                        min="1"
-                        class="mt-2 block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                    >
+                    @php
+                        $stats = $this->suggestedBetsStats;
+                    @endphp
+                    
+                    <div class="mt-2 flex items-center gap-4">
+                        <input
+                            id="planned_bets"
+                            type="range"
+                            wire:model.live="planned_bets"
+                            min="{{ $stats['min'] }}"
+                            max="{{ $stats['full'] }}"
+                            step="1"
+                            class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 relative z-10"
+                        >
+                        <input 
+                            type="number" 
+                            wire:model.live="planned_bets" 
+                            class="w-24 rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-center font-bold text-indigo-700" 
+                            min="{{ $stats['min'] }}" 
+                            max="{{ $stats['full'] }}"
+                        >
+                    </div>
+                    
+                    <div class="relative mt-2 text-xs text-slate-500">
+                        @if($stats['full'] > $stats['min'])
+                            @php
+                                $idealPercent = 50;
+                                if($stats['ideal'] > $stats['min'] && $stats['ideal'] < $stats['full']) {
+                                    $idealPercent = (($stats['ideal'] - $stats['min']) / ($stats['full'] - $stats['min'])) * 100;
+                                }
+                            @endphp
+                            
+                            @if($idealPercent >= 15 || $stats['ideal'] <= $stats['min'])
+                            <div class="absolute top-0 flex flex-col items-center" style="left: 0%;">
+                                <span class="w-1 h-2 bg-slate-300 rounded block mb-1"></span>
+                                <span>Mín ({{ $stats['min'] }})</span>
+                            </div>
+                            @endif
+                            
+                            @if($stats['ideal'] > $stats['min'] && $stats['ideal'] < $stats['full'])
+                                <div class="absolute top-0 flex flex-col items-center -translate-x-1/2" style="left: {{ $idealPercent }}%;">
+                                    <span class="w-1 h-2 bg-indigo-400 rounded block mb-1"></span>
+                                    <span class="text-indigo-600 font-bold whitespace-nowrap">Ideal ({{ $stats['ideal'] }})</span>
+                                </div>
+                            @endif
+                            
+                            @if($idealPercent <= 85 || $stats['ideal'] >= $stats['full'])
+                            <div class="absolute top-0 flex flex-col items-center -translate-x-full" style="left: 100%;">
+                                <span class="w-1 h-2 bg-slate-300 rounded block mb-1"></span>
+                                <span class="whitespace-nowrap">Max ({{ $stats['full'] }})</span>
+                            </div>
+                            @endif
+                            
+                            <div class="h-10"></div> <!-- Espaçador -->
+                        @else
+                            <div class="text-center text-indigo-600 font-bold">Fixo em {{ $stats['full'] }} apostas</div>
+                        @endif
+                    </div>
 
                     @error('planned_bets')
                         <p class="mt-2 text-sm font-medium text-rose-600">

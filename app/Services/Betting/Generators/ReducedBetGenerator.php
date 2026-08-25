@@ -3,10 +3,10 @@
 namespace App\Services\Betting\Generators;
 
 use App\Models\Closing;
+use App\Services\Betting\SetCoveringService;
 use Generator;
 use InvalidArgumentException;
 use LogicException;
-use PHPExperts\Combinatorics\CombinationsGenerator;
 
 class ReducedBetGenerator implements BetGeneratorInterface
 {
@@ -70,7 +70,7 @@ class ReducedBetGenerator implements BetGeneratorInterface
     }
 
     /**
-     * Gera as apostas para o fechamento reduzido.
+     * Gera as apostas para o fechamento reduzido usando o SetCoveringService.
      *
      * @param  Closing  $closing  O objeto Closing contendo os parâmetros.
      * @return Generator Uma coleção de arrays, onde cada array representa uma aposta.
@@ -87,36 +87,22 @@ class ReducedBetGenerator implements BetGeneratorInterface
         $guaranteeHits = $reducedParams['guarantee_hits'];
         $guaranteePoints = $reducedParams['guarantee_points'];
 
-        $generatedBets = []; // Usaremos um array temporário para evitar duplicatas antes de yield
+        $budget = $closing->planned_bets ?: null;
 
-        $maxCombinationsToGenerate = $closing->planned_bets ?? 100; // Limitar para evitar sobrecarga
+        $coveringService = app(SetCoveringService::class);
+
+        $result = $coveringService->generateReducedWheel(
+            baseNumbers: $baseNumbers,
+            betSize: $betSize,
+            guaranteePoints: $guaranteePoints,
+            guaranteeHits: $guaranteeHits,
+            budget: $budget
+        );
 
         $count = 0;
-        // <--- CORREÇÃO AQUI: Instanciar CombinationsGenerator e chamar o método generate()
-        $combinationsGenerator = new CombinationsGenerator;
-        $combinationsIterator = $combinationsGenerator->generate($baseNumbers);
-
-        // A biblioteca phpexperts/combinatorics gera TODAS as combinações possíveis,
-        // incluindo combinações parciais (tamanho 1, 2, etc.).
-        // Precisamos filtrar apenas as combinações que têm o tamanho exato de betSize.
-        foreach ($combinationsIterator as $combination) {
-            if (count($combination) !== $betSize) {
-                continue; // Pula combinações que não têm o tamanho da aposta
-            }
-
-            if ($count >= $maxCombinationsToGenerate) {
-                break; // Limita o número de apostas geradas para evitar sobrecarga
-            }
-
-            // Garante ordem para evitar duplicatas por ordem diferente
-            sort($combination);
-            $betKey = implode('-', $combination);
-
-            if (! isset($generatedBets[$betKey])) {
-                $generatedBets[$betKey] = $combination;
-                yield $combination;
-                $count++;
-            }
+        foreach ($result['bets'] as $bet) {
+            yield $bet;
+            $count++;
         }
 
         if ($count === 0) {

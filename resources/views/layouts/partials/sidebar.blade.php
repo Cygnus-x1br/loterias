@@ -108,12 +108,24 @@
                         Comparativo de concursos
                     </a>
 
-                    <a href="#" class="sidebar-link">
+                    <a 
+                        href="{{ route('closings.educational') }}"
+                        @class([
+                            'sidebar-link',
+                            'bg-indigo-50 !text-indigo-700 font-semibold' => request()->routeIs('closings.educational'),
+                        ])
+                    >
                         <span>◒</span>
                         Cobertura combinatória
                     </a>
 
-                    <a href="#" class="sidebar-link">
+                    <a 
+                        href="{{ route('closings.optimize.index') }}"
+                        @class([
+                            'sidebar-link',
+                            'bg-indigo-50 !text-indigo-700 font-semibold' => request()->routeIs('closings.optimize.*'),
+                        ])
+                    >
                         <span>⌁</span>
                         Otimização
                     </a>

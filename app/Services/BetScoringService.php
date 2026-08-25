@@ -39,17 +39,17 @@ class BetScoringService
 
         $totalScore = 0;
 
-        // 1. Soma das Dezenas (Max 200)
+        // 1. Soma das Dezenas (Max 100)
         $sum = array_sum($numbers);
         $details['sum']['value'] = $sum;
         if ($sum >= 180 && $sum <= 220) {
-            $details['sum']['points'] = 200;
-        } elseif (($sum >= 170 && $sum <= 179) || ($sum >= 221 && $sum <= 230)) {
             $details['sum']['points'] = 100;
+        } elseif (($sum >= 170 && $sum <= 179) || ($sum >= 221 && $sum <= 230)) {
+            $details['sum']['points'] = 50;
         }
         $totalScore += $details['sum']['points'];
 
-        // 2. Paridade (Max 200)
+        // 2. Paridade (Max 100)
         $evens = 0;
         $odds = 0;
         foreach ($numbers as $num) {
@@ -61,13 +61,13 @@ class BetScoringService
         }
         $details['even_odd']['value'] = "{$evens} pares / {$odds} ímpares";
         if (($evens === 7 && $odds === 8) || ($evens === 8 && $odds === 7)) {
-            $details['even_odd']['points'] = 200;
-        } elseif (($evens === 6 && $odds === 9) || ($evens === 9 && $odds === 6)) {
             $details['even_odd']['points'] = 100;
+        } elseif (($evens === 6 && $odds === 9) || ($evens === 9 && $odds === 6)) {
+            $details['even_odd']['points'] = 50;
         }
         $totalScore += $details['even_odd']['points'];
 
-        // 3. Moldura / Centro (Max 200)
+        // 3. Moldura / Centro (Max 100)
         $frameNumbers = [1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25];
         $frameSet = array_flip($frameNumbers);
         $frame = 0;
@@ -81,28 +81,27 @@ class BetScoringService
         }
         $details['frame_center']['value'] = "{$frame} moldura / {$center} centro";
         if (($frame === 9 && $center === 6) || ($frame === 10 && $center === 5)) {
-            $details['frame_center']['points'] = 200;
-        } elseif (($frame === 8 && $center === 7) || ($frame === 11 && $center === 4)) {
             $details['frame_center']['points'] = 100;
+        } elseif (($frame === 8 && $center === 7) || ($frame === 11 && $center === 4)) {
+            $details['frame_center']['points'] = 50;
         }
         $totalScore += $details['frame_center']['points'];
 
-        // 4. Repetição Último Concurso (Max 150)
+        // 4. Repetição Último Concurso (Max 100)
         $lastContestData = $this->statisticsService->getLastContestWithSum();
         if ($lastContestData && isset($lastContestData['result']['drawn_numbers'])) {
             $lastNumbers = $lastContestData['result']['drawn_numbers'];
             $intersect = count(array_intersect($numbers, $lastNumbers));
             $details['last_draw_repetition']['value'] = $intersect;
             if (in_array($intersect, [8, 9, 10])) {
-                $details['last_draw_repetition']['points'] = 150;
+                $details['last_draw_repetition']['points'] = 100;
             } elseif (in_array($intersect, [7, 11])) {
-                $details['last_draw_repetition']['points'] = 75;
+                $details['last_draw_repetition']['points'] = 50;
             }
         }
         $totalScore += $details['last_draw_repetition']['points'];
 
         // 5. Ineditismo (Max 50)
-        // Check if the exact 15 numbers were ever drawn
         $hasDrawn = false;
         if (DB::connection()->getDriverName() === 'sqlite') {
             $hasDrawn = HistoricalResult::get()->contains(function ($result) use ($numbers) {
@@ -131,7 +130,7 @@ class BetScoringService
         }
         $totalScore += $details['top_10_numbers']['points'];
 
-        // 7. Pares Mais Frequentes Top 10 (Max 30)
+        // 7. Pares Mais Frequentes Top 10 (Max 40)
         $top10Pairs = $this->statisticsService->getMostFrequentPairs(10)->keys()->toArray();
         $pairsCount = 0;
         $count = count($numbers);
@@ -145,9 +144,9 @@ class BetScoringService
         }
         $details['top_pairs']['value'] = $pairsCount;
         if ($pairsCount >= 3) {
-            $details['top_pairs']['points'] = 30;
+            $details['top_pairs']['points'] = 40;
         } elseif ($pairsCount >= 1) {
-            $details['top_pairs']['points'] = 15;
+            $details['top_pairs']['points'] = 20;
         }
         $totalScore += $details['top_pairs']['points'];
 
@@ -172,12 +171,10 @@ class BetScoringService
         }
         $totalScore += $details['top_trios']['points'];
 
-        // 9. Pares, 10. Trios, 11. Quadras Consecutivos (Top)
-        // Pegando os tops do Analysis via Cache (mesma lógica usada no Livewire\LotofacilAnalysis)
+        // 9. Pares, 10. Trios, 11. Quadras Consecutivos (Top) (Max 30)
         $analysisCache = Cache::get('lotofacil_advanced_analysis');
         if ($analysisCache && isset($analysisCache['consecutive_sequences'])) {
             $consecutiveTop = $analysisCache['consecutive_sequences'];
-
             $topPairsCons = array_keys($consecutiveTop['top_pairs_consecutive'] ?? []);
             $topTriosCons = array_keys($consecutiveTop['top_trios_consecutive'] ?? []);
             $topQuadsCons = array_keys($consecutiveTop['top_quads_consecutive'] ?? []);
@@ -186,23 +183,17 @@ class BetScoringService
             $myTriosCons = 0;
             $myQuadsCons = 0;
 
-            // Encontrar todas as sequências consecutivas na aposta
             for ($i = 0; $i < $count - 1; $i++) {
-                // Par
                 if ($numbers[$i + 1] === $numbers[$i] + 1) {
                     $pairStr = sprintf('%02d-%02d', $numbers[$i], $numbers[$i + 1]);
                     if (in_array($pairStr, $topPairsCons)) {
                         $myPairsCons++;
                     }
-
-                    // Trio
                     if ($i < $count - 2 && $numbers[$i + 2] === $numbers[$i] + 2) {
                         $trioStr = sprintf('%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2]);
                         if (in_array($trioStr, $topTriosCons)) {
                             $myTriosCons++;
                         }
-
-                        // Quadra
                         if ($i < $count - 3 && $numbers[$i + 3] === $numbers[$i] + 3) {
                             $quadStr = sprintf('%02d-%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2], $numbers[$i + 3]);
                             if (in_array($quadStr, $topQuadsCons)) {
@@ -212,31 +203,61 @@ class BetScoringService
                     }
                 }
             }
-
             $details['top_consecutive_pairs']['value'] = $myPairsCons;
             if ($myPairsCons >= 3) {
-                $details['top_consecutive_pairs']['points'] = 30;
+                $details['top_consecutive_pairs']['points'] = 10;
             } elseif ($myPairsCons >= 1) {
-                $details['top_consecutive_pairs']['points'] = 15;
+                $details['top_consecutive_pairs']['points'] = 5;
             }
             $totalScore += $details['top_consecutive_pairs']['points'];
 
             $details['top_consecutive_trios']['value'] = $myTriosCons;
             if ($myTriosCons >= 2) {
-                $details['top_consecutive_trios']['points'] = 30;
+                $details['top_consecutive_trios']['points'] = 10;
             } elseif ($myTriosCons === 1) {
-                $details['top_consecutive_trios']['points'] = 15;
+                $details['top_consecutive_trios']['points'] = 5;
             }
             $totalScore += $details['top_consecutive_trios']['points'];
 
             $details['top_consecutive_quads']['value'] = $myQuadsCons;
             if ($myQuadsCons >= 1) {
-                $details['top_consecutive_quads']['points'] = 30;
+                $details['top_consecutive_quads']['points'] = 10;
             }
             $totalScore += $details['top_consecutive_quads']['points'];
         }
 
-        // 8. Contagem de Quentes, Neutras e Frias
+        // 12. Ciclo das Dezenas (Max 150)
+        $cycleData = $this->statisticsService->getDecadesCycleAnalysis();
+        $missingNumbers = $cycleData['missing_numbers'] ?? [];
+        $intersectCycle = count(array_intersect($numbers, $missingNumbers));
+        $details['cycle'] = ['points' => 0, 'value' => $intersectCycle];
+
+        // Se a aposta tem as dezenas que faltam (proporcionalmente), ganha pontos
+        if (count($missingNumbers) > 0) {
+            $ratio = $intersectCycle / count($missingNumbers);
+            if ($ratio >= 0.8) {
+                $details['cycle']['points'] = 150;
+            } elseif ($ratio >= 0.5) {
+                $details['cycle']['points'] = 75;
+            }
+        }
+        $totalScore += $details['cycle']['points'];
+
+        // 13. Atraso (Delay) (Max 150)
+        $delayData = $this->statisticsService->getCurrentDelayAnalysis();
+        $topDelayed = array_slice($delayData, 0, 8); // Top 8 mais atrasadas
+        $delayedNumbers = array_column($topDelayed, 'number');
+        $intersectDelay = count(array_intersect($numbers, $delayedNumbers));
+        $details['delay'] = ['points' => 0, 'value' => $intersectDelay];
+
+        if ($intersectDelay >= 5) {
+            $details['delay']['points'] = 150;
+        } elseif ($intersectDelay >= 3) {
+            $details['delay']['points'] = 75;
+        }
+        $totalScore += $details['delay']['points'];
+
+        // Contagem de Quentes, Neutras e Frias
         $temperatures = $this->statisticsService->getNumberTemperatureClassification(20);
         $hotCount = 0;
         $neutralCount = 0;

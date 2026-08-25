@@ -39,12 +39,18 @@ Route::middleware('auth')
     ->prefix('fechamentos')
     ->name('closings.')
     ->group(function () {
+        Volt::route('/otimizacao', 'pages.closings.optimize-index')
+            ->name('optimize.index');
+        Volt::route('/cobertura-combinatoria', 'pages.closings.educational')
+            ->name('educational');
         Volt::route('/', 'pages.closings.index')
             ->name('index');
         Volt::route('/novo', 'pages.closings.create')
             ->name('create');
         Volt::route('/{closing}', 'pages.closings.show')
             ->name('show');
+        Volt::route('/{closing}/otimizar', 'pages.closings.optimize')
+            ->name('optimize');
         Volt::route('/{closing}/imprimir', 'pages.closings.print')
             ->name('print');
         Volt::route('/{closing}/editar', 'pages.closings.edit')
