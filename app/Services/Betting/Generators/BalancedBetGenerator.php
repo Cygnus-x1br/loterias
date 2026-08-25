@@ -160,11 +160,25 @@ class BalancedBetGenerator implements BetGeneratorInterface
                 $repeatedPool = array_values(array_intersect($baseNumbers, $lastDrawnNumbers));
                 $nonRepeatedPool = array_values(array_diff($baseNumbers, $lastDrawnNumbers));
 
-                $minRep = max($parameters['repeated_last_draw'][0], 0);
-                $maxRep = min($parameters['repeated_last_draw'][1], count($repeatedPool));
+                $minRepParam = max($parameters['repeated_last_draw'][0], 0);
+                $maxRepParam = min($parameters['repeated_last_draw'][1], count($repeatedPool));
 
-                // Garante limites físicos
-                $minRep = max($minRep, $betSize - count($nonRepeatedPool));
+                // Validação Matemática Prévia (Fail Fast)
+                if ($minRepParam > count($repeatedPool)) {
+                    throw new LogicException(
+                        sprintf('Não é possível gerar apostas com no mínimo %d repetidas pois a base possui apenas %d dezenas do último sorteio.', $parameters['repeated_last_draw'][0], count($repeatedPool))
+                    );
+                }
+
+                $requiredRepeated = $betSize - count($nonRepeatedPool);
+                if ($parameters['repeated_last_draw'][1] < $requiredRepeated) {
+                    throw new LogicException(
+                        sprintf('Não é possível gerar apostas com no máximo %d repetidas pois a base exige no mínimo %d repetidas.', $parameters['repeated_last_draw'][1], max(0, $requiredRepeated))
+                    );
+                }
+
+                $minRep = max($minRepParam, $requiredRepeated);
+                $maxRep = $maxRepParam;
 
                 if ($minRep <= $maxRep) {
                     $repeatedQuotas = app(LotofacilStatisticsService::class)->calculateRepetitionQuotas(
