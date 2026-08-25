@@ -513,6 +513,92 @@
             </div>
         </section>
 
+        {{-- 6. Ciclo de Dezenas --}}
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 space-y-5">
+            <div class="flex flex-col justify-between gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pink-600 text-white shadow-md shadow-pink-600/20 font-bold">
+                        ⟲
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-900">
+                            6. Ciclo de Dezenas
+                        </h2>
+                        <p class="text-xs text-slate-500">
+                            Análise de quantas dezenas faltam para que todos os 25 números sejam sorteados.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid gap-4 sm:grid-cols-3">
+                <div class="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <span class="text-xs font-semibold text-slate-500">Progresso do Ciclo</span>
+                    <p class="mt-1 text-2xl font-black text-pink-600">
+                        {{ $decadesCycleAnalysis['drawn_count'] ?? 0 }} / 25
+                    </p>
+                    <p class="mt-1 text-xs text-slate-500">
+                        Faltam {{ $decadesCycleAnalysis['missing_count'] ?? 25 }} dezenas para fechar.
+                    </p>
+                </div>
+                
+                <div class="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <span class="text-xs font-semibold text-slate-500">Concursos no Ciclo Atual</span>
+                    <p class="mt-1 text-2xl font-black text-slate-900">
+                        {{ $decadesCycleAnalysis['contests_in_current_cycle'] ?? 0 }}
+                    </p>
+                    <p class="mt-1 text-xs text-slate-500">
+                        Iniciado no concurso #{{ $decadesCycleAnalysis['started_at_contest'] ?? '—' }}
+                    </p>
+                </div>
+                
+                <div class="rounded-xl border border-slate-100 bg-pink-50/50 p-4">
+                    <span class="text-xs font-semibold text-pink-900">Dezenas Restantes</span>
+                    <div class="mt-2 flex flex-wrap gap-1.5">
+                        @forelse ($decadesCycleAnalysis['missing_numbers'] ?? [] as $num)
+                            <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-pink-600 text-xs font-bold text-white shadow-sm shadow-pink-600/20">
+                                {{ str_pad($num, 2, '0', STR_PAD_LEFT) }}
+                            </span>
+                        @empty
+                            <span class="text-xs text-slate-500 font-semibold">O ciclo fechou no último concurso!</span>
+                        @endforelse
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        {{-- 7. Atraso Atual das Dezenas --}}
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 space-y-5">
+            <div class="flex flex-col justify-between gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-white shadow-md shadow-orange-500/20 font-bold">
+                        ⏳
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-900">
+                            7. Atraso Atual das Dezenas
+                        </h2>
+                        <p class="text-xs text-slate-500">
+                            Há quantos concursos cada dezena não é sorteada (Top 10 mais atrasadas).
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                @foreach (array_slice($currentDelayAnalysis ?? [], 0, 10) as $idx => $delayData)
+                    <div class="flex flex-col items-center justify-center rounded-xl border border-slate-100 bg-slate-50 p-3 {{ $idx < 3 ? 'ring-2 ring-orange-500/30 bg-orange-50/30' : '' }}">
+                        <span class="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800 text-sm font-bold text-white shadow-md">
+                            {{ str_pad($delayData['number'], 2, '0', STR_PAD_LEFT) }}
+                        </span>
+                        <span class="mt-2 text-xs font-bold {{ $idx < 3 ? 'text-orange-600' : 'text-slate-600' }}">
+                            {{ $delayData['delay'] }} {{ $delayData['delay'] == 1 ? 'concurso' : 'concursos' }}
+                        </span>
+                    </div>
+                @endforeach
+            </div>
+        </section>
+
         {{-- Estatísticas de Frequência, Pares/Trios e Repetições Históricas --}}
         <section>
             <livewire:lotofacil-statistics />

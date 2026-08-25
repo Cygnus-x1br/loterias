@@ -30,6 +30,10 @@ class LotofacilAnalysis extends Component
 
     public ?array $consecutiveSequencesAnalysis = null;
 
+    public ?array $decadesCycleAnalysis = null;
+
+    public ?array $currentDelayAnalysis = null;
+
     public ?array $lastContest = null;
 
     public int $totalContests = 0;
@@ -109,6 +113,10 @@ class LotofacilAnalysis extends Component
         $this->evenOddAnalysis = $analysisData['even_odd_analysis'];
         $this->frameCenterAnalysis = $analysisData['frame_center_analysis'];
         $this->consecutiveSequencesAnalysis = $analysisData['consecutive_sequences'];
+        
+        $statisticsService = app(\App\Services\LotofacilStatisticsService::class);
+        $this->decadesCycleAnalysis = $statisticsService->getDecadesCycleAnalysis();
+        $this->currentDelayAnalysis = $statisticsService->getCurrentDelayAnalysis();
     }
 
     /**

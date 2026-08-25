@@ -160,13 +160,9 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
 
     public function selectRandomNumbers(): void
     {
-        $availableNumbers = range(1, 25);
-
-        shuffle($availableNumbers);
-
-        $this->numbers = array_slice($availableNumbers, 0, 15);
-
-        sort($this->numbers);
+        $smartRandomBetService = app(\App\Services\SmartRandomBetService::class);
+        
+        $this->numbers = $smartRandomBetService->generateSmartBet();
 
         $this->resetValidation('numbers');
     }
@@ -347,8 +343,8 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
                     </svg>
 
                     <p class="text-sm leading-6 text-sky-800">
-                        A seleção aleatória é apenas uma facilidade visual para preencher o formulário.
-                        Nenhum algoritmo de geração é executado nesta etapa.
+                        A seleção aleatória utiliza nosso algoritmo inteligente (Roleta Viciada) que aplica 
+                        filtros estatísticos (pares, ímpares, moldura, soma) e rejeita combinações já sorteadas na história.
                     </p>
                 </div>
 
@@ -651,8 +647,8 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
             </svg>
 
             <p class="text-sm leading-6 text-amber-800">
-                Esta interface apenas cadastra a aposta selecionada.
-                Não são realizados cálculos de probabilidade, geração de combinações ou previsão de resultados.
+                Esta interface cadastra a aposta. A opção de Seleção Aleatória foi otimizada para sugerir 
+                apenas combinações com alta probabilidade estatística baseada no histórico.
             </p>
         </div>
     </section>

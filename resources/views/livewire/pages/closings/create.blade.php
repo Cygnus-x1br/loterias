@@ -484,11 +484,8 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
     public function selectRandomNumbers(): void
     {
-        $availableNumbers = range(1, 25);
-
-        shuffle($availableNumbers);
-
-        $this->base_numbers = array_slice($availableNumbers, 0, 20);
+        $smartRandomBetService = app(\App\Services\SmartRandomBetService::class);
+        $this->base_numbers = $smartRandomBetService->generateSmartBase(20);
 
         sort($this->base_numbers);
 

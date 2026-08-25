@@ -1105,4 +1105,131 @@ class LotofacilStatisticsService
             'avg_score' => $scoreCount > 0 ? round($scoreTotal / $scoreCount, 0) : null,
         ];
     }
+    /**
+     * Calcula o ciclo atual das dezenas (quantas faltam e quais faltam para fechar o ciclo).
+     */
+    public function getDecadesCycleAnalysis(): array
+    {
+        return Cache::remember('lotofacil_decades_cycle', now()->addMinutes(30), function () {
+            $results = HistoricalResult::query()
+                ->orderBy('contest_number', 'desc')
+                ->take(100) // 100 sorteios é mais do que o suficiente para fechar um ciclo
+                ->get(['contest_number', 'drawn_numbers']);
+
+            $drawnSinceLastCycle = [];
+            $cycleStartContest = null;
+            $contestsCount = 0;
+            
+            if ($results->isEmpty()) {
+                return [
+                    'missing_numbers' => [],
+                    'missing_count' => 25,
+                    'drawn_count' => 0,
+                    'contests_in_current_cycle' => 0,
+                    'started_at_contest' => null,
+                ];
+            }
+
+            foreach ($results as $result) {
+                $numbers = is_array($result->drawn_numbers) ? $result->drawn_numbers : json_decode((string) $result->drawn_numbers, true);
+                if (is_array($numbers)) {
+                    foreach ($numbers as $num) {
+                        $drawnSinceLastCycle[(int)$num] = true;
+                    }
+                }
+                
+                $contestsCount++;
+                
+                if (count($drawnSinceLastCycle) === 25) {
+                    break;
+                }
+            }
+
+            if (count($drawnSinceLastCycle) === 25) {
+                // Ciclo fechou no último concurso analisado no loop ou neste que estamos abrindo
+                // Se o ciclo fechou no último concurso (ou seja, 0 dezenas faltando para fechar),
+                // o ciclo atual recomeça contando apenas a partir do último resultado!
+                $drawnSinceLastCycle = [];
+                $latest = $results->first();
+                $numbers = is_array($latest->drawn_numbers) ? $latest->drawn_numbers : json_decode((string) $latest->drawn_numbers, true);
+                if (is_array($numbers)) {
+                    foreach ($numbers as $num) {
+                        $drawnSinceLastCycle[(int)$num] = true;
+                    }
+                }
+                $contestsCount = 1;
+                $cycleStartContest = $latest->contest_number;
+            } else {
+                $cycleStartContest = $results->first()->contest_number - $contestsCount + 1;
+            }
+
+            $missingNumbers = [];
+            for ($i = 1; $i <= 25; $i++) {
+                if (!isset($drawnSinceLastCycle[$i])) {
+                    $missingNumbers[] = $i;
+                }
+            }
+
+            return [
+                'missing_numbers' => $missingNumbers,
+                'missing_count' => count($missingNumbers),
+                'drawn_count' => 25 - count($missingNumbers),
+                'contests_in_current_cycle' => $contestsCount,
+                'started_at_contest' => $cycleStartContest,
+            ];
+        });
+    }
+
+    /**
+     * Calcula o atraso (delay) atual de cada dezena (quantos concursos faz que ela não sai).
+     */
+    public function getCurrentDelayAnalysis(): array
+    {
+        return Cache::remember('lotofacil_current_delay', now()->addMinutes(30), function () {
+            $results = HistoricalResult::query()
+                ->orderBy('contest_number', 'desc')
+                ->take(50) // 50 sorteios devem cobrir o maior atraso
+                ->get(['contest_number', 'drawn_numbers']);
+
+            $delays = [];
+            
+            for ($i = 1; $i <= 25; $i++) {
+                $delays[$i] = 50; // default 50+ se não achar
+            }
+
+            if ($results->isEmpty()) {
+                return $delays;
+            }
+
+            foreach (range(1, 25) as $num) {
+                $delay = 0;
+                foreach ($results as $index => $result) {
+                    $numbers = is_array($result->drawn_numbers) ? $result->drawn_numbers : json_decode((string) $result->drawn_numbers, true);
+                    if (is_array($numbers) && in_array($num, $numbers, true)) {
+                        $delay = $index;
+                        break;
+                    }
+                }
+                $delays[$num] = $delay;
+            }
+
+            $formattedDelays = [];
+            foreach ($delays as $num => $delay) {
+                $formattedDelays[] = [
+                    'number' => $num,
+                    'delay' => $delay
+                ];
+            }
+
+            // Sort by highest delay first
+            usort($formattedDelays, function ($a, $b) {
+                if ($a['delay'] === $b['delay']) {
+                    return $a['number'] <=> $b['number'];
+                }
+                return $b['delay'] <=> $a['delay'];
+            });
+
+            return $formattedDelays;
+        });
+    }
 }
