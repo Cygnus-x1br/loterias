@@ -90,11 +90,22 @@
                         href="{{ route('lotofacil.analysis') }}"
                         @class([
                             'sidebar-link',
-                            'bg-indigo-50 !text-indigo-700 font-semibold' => request()->routeIs('lotofacil.analysis'),
+                            'bg-indigo-50 !text-indigo-700 font-semibold' => request()->routeIs('lotofacil.analysis') || request()->routeIs('lotofacil.contest_comparison'),
                         ])
                     >
                         <span>∑</span>
                         Cálculos matemáticos
+                    </a>
+
+                    <a
+                        href="{{ route('lotofacil.contest_comparison') }}"
+                        @class([
+                            'sidebar-link text-xs pl-7',
+                            '!text-indigo-700 font-semibold' => request()->routeIs('lotofacil.contest_comparison'),
+                        ])
+                    >
+                        <span>↳</span>
+                        Comparativo de concursos
                     </a>
 
                     <a href="#" class="sidebar-link">

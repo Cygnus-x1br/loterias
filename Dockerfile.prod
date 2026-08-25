@@ -25,8 +25,8 @@ RUN apk add --no-cache \
     freetype-dev
 
 # Instala extensões do PHP necessárias para o Laravel
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo_mysql mbstring zip exif pcntl bcmath intl gd
+COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+RUN install-php-extensions pdo_mysql mbstring zip exif pcntl bcmath intl gd redis
 
 # Instala Composer
 COPY --from=composer:2.7 /usr/bin/composer /usr/bin/composer

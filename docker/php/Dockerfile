@@ -5,9 +5,11 @@ ARG UID=1000
 ARG GID=1000
 
 # Extensões exigidas pelo Laravel
-RUN apt-get update && apt-get install -y \
-    git curl unzip zip libpng-dev libonig-dev libxml2-dev libzip-dev \
-    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
+COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+
+RUN apt-get update && apt-get install -y git curl unzip zip \
+    && install-php-extensions pdo_mysql mbstring exif pcntl bcmath gd zip redis \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 

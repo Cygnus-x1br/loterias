@@ -841,4 +841,268 @@ class LotofacilStatisticsService
             return $quotas;
         });
     }
+
+    /**
+     * Retorna a análise comparativa detalhada dos últimos N concursos (10, 25, 50, 100).
+     *
+     * @param  int  $limit  Quantidade de concursos (10, 25, 50, 100).
+     * @return array<string, mixed>
+     */
+    public function getContestsComparisonAnalysis(int $limit = 25): array
+    {
+        $limit = in_array($limit, [10, 25, 50, 100], true) ? $limit : 25;
+        $cacheKey = "lotofacil_contests_comparison_{$limit}";
+
+        return Cache::remember($cacheKey, now()->addHours(6), function () use ($limit) {
+            $rawResults = HistoricalResult::query()
+                ->orderBy('contest_number', 'desc')
+                ->take($limit + 1)
+                ->get(['id', 'contest_number', 'draw_date', 'drawn_numbers']);
+
+            if ($rawResults->isEmpty()) {
+                return [
+                    'limit' => $limit,
+                    'total_analyzed' => 0,
+                    'last_contest' => null,
+                    'contests' => [],
+                    'averages' => [],
+                    'temperature_map' => [],
+                    'hot_numbers' => [],
+                    'neutral_numbers' => [],
+                    'cold_numbers' => [],
+                ];
+            }
+
+            $results = $rawResults->take($limit);
+            $temperatureMap = $this->calculatePeriodTemperatures($results);
+            $contestsList = $this->buildContestsComparisonList($rawResults, $limit, $temperatureMap);
+            $averages = $this->calculateComparisonAverages($contestsList);
+
+            $hotNumbers = [];
+            $neutralNumbers = [];
+            $coldNumbers = [];
+            foreach ($temperatureMap as $num => $info) {
+                if ($info['temperature'] === 'hot') {
+                    $hotNumbers[] = $num;
+                } elseif ($info['temperature'] === 'cold') {
+                    $coldNumbers[] = $num;
+                } else {
+                    $neutralNumbers[] = $num;
+                }
+            }
+
+            return [
+                'limit' => $limit,
+                'total_analyzed' => $results->count(),
+                'last_contest' => $contestsList[0] ?? null,
+                'contests' => $contestsList,
+                'averages' => $averages,
+                'temperature_map' => $temperatureMap,
+                'hot_numbers' => $hotNumbers,
+                'neutral_numbers' => $neutralNumbers,
+                'cold_numbers' => $coldNumbers,
+            ];
+        });
+    }
+
+    /**
+     * Calcula as temperaturas das 25 dezenas com base nas frequências do período selecionado.
+     *
+     * @param  Collection<int, HistoricalResult>  $results
+     * @return array<int, array{frequency: int, percentage: float, temperature: string}>
+     */
+    private function calculatePeriodTemperatures(Collection $results): array
+    {
+        $totalContests = $results->count();
+        $frequencies = array_fill(1, 25, 0);
+
+        foreach ($results as $res) {
+            $numbers = is_array($res->drawn_numbers) ? $res->drawn_numbers : json_decode((string) $res->drawn_numbers, true);
+            if (! is_array($numbers)) {
+                continue;
+            }
+            foreach ($numbers as $num) {
+                $numInt = (int) $num;
+                if ($numInt >= 1 && $numInt <= 25) {
+                    $frequencies[$numInt]++;
+                }
+            }
+        }
+
+        $sortedFreqs = $frequencies;
+        sort($sortedFreqs);
+        $count = count($sortedFreqs);
+        $coldThreshold = $sortedFreqs[(int) floor($count * 0.33)] ?? 0;
+        $hotThreshold = $sortedFreqs[(int) floor($count * 0.67)] ?? 0;
+
+        $map = [];
+        for ($i = 1; $i <= 25; $i++) {
+            $freq = $frequencies[$i];
+            $temp = 'neutral';
+            if ($freq >= $hotThreshold && $freq > 0) {
+                $temp = 'hot';
+            } elseif ($freq <= $coldThreshold) {
+                $temp = 'cold';
+            }
+
+            $map[$i] = [
+                'frequency' => $freq,
+                'percentage' => $totalContests > 0 ? round(($freq / $totalContests) * 100, 1) : 0.0,
+                'temperature' => $temp,
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Constrói a lista estruturada de concursos para a tabela comparativa.
+     */
+    private function buildContestsComparisonList(Collection $rawResults, int $limit, array $temperatureMap): array
+    {
+        $primesConst = [2, 3, 5, 7, 11, 13, 17, 19, 23];
+        $fibonacciConst = [1, 2, 3, 5, 8, 13, 21];
+        $frameConst = [1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25];
+
+        $contestsList = [];
+        $resultsArray = $rawResults->values();
+        $targetCount = min($limit, $resultsArray->count());
+
+        $betScoringService = null;
+        try {
+            $betScoringService = app(BetScoringService::class);
+        } catch (\Throwable) {
+            $betScoringService = null;
+        }
+
+        for ($idx = 0; $idx < $targetCount; $idx++) {
+            $current = $resultsArray->get($idx);
+            $previous = $resultsArray->get($idx + 1);
+
+            $drawn = is_array($current->drawn_numbers) ? $current->drawn_numbers : json_decode((string) $current->drawn_numbers, true);
+            $drawn = is_array($drawn) ? array_map('intval', $drawn) : [];
+            sort($drawn);
+
+            $prevDrawn = [];
+            if ($previous) {
+                $rawPrev = is_array($previous->drawn_numbers) ? $previous->drawn_numbers : json_decode((string) $previous->drawn_numbers, true);
+                $prevDrawn = is_array($rawPrev) ? array_map('intval', $rawPrev) : [];
+            }
+
+            $drawnSet = array_flip($drawn);
+
+            // Grade das 25 dezenas com status
+            $numbersGrid = [];
+            for ($num = 1; $num <= 25; $num++) {
+                $isDrawn = isset($drawnSet[$num]);
+                $numbersGrid[$num] = [
+                    'number' => $num,
+                    'is_drawn' => $isDrawn,
+                    'temperature' => $temperatureMap[$num]['temperature'] ?? 'neutral',
+                    'frequency' => $temperatureMap[$num]['frequency'] ?? 0,
+                ];
+            }
+
+            $evens = count(array_filter($drawn, fn ($n) => $n % 2 === 0));
+            $odds = count($drawn) - $evens;
+            $sum = array_sum($drawn);
+            $primes = count(array_intersect($drawn, $primesConst));
+            $fibonacci = count(array_intersect($drawn, $fibonacciConst));
+            $frame = count(array_intersect($drawn, $frameConst));
+            $center = count($drawn) - $frame;
+            $repeatedFromPrevious = ! empty($prevDrawn) ? count(array_intersect($drawn, $prevDrawn)) : null;
+
+            $scoreData = null;
+            if ($betScoringService && count($drawn) === 15) {
+                try {
+                    $scoreData = $betScoringService->calculateScore($drawn);
+                } catch (\Throwable) {
+                    $scoreData = null;
+                }
+            }
+
+            $formattedDate = null;
+            if ($current->draw_date instanceof \DateTimeInterface) {
+                $formattedDate = $current->draw_date->format('d/m/Y');
+            } elseif ($current->draw_date) {
+                $formattedDate = Carbon::parse($current->draw_date)->format('d/m/Y');
+            }
+
+            $contestsList[] = [
+                'contest_number' => $current->contest_number,
+                'draw_date' => $formattedDate,
+                'drawn_numbers' => $drawn,
+                'numbers_grid' => $numbersGrid,
+                'sum' => $sum,
+                'evens' => $evens,
+                'odds' => $odds,
+                'primes' => $primes,
+                'fibonacci' => $fibonacci,
+                'frame' => $frame,
+                'center' => $center,
+                'repeated_from_previous' => $repeatedFromPrevious,
+                'previous_contest_number' => $previous?->contest_number,
+                'score' => $scoreData['total_score'] ?? null,
+                'score_classification' => $scoreData['classification'] ?? '—',
+                'score_color' => $scoreData['color'] ?? 'slate',
+            ];
+        }
+
+        return $contestsList;
+    }
+
+    /**
+     * Calcula as médias das métricas estatísticas dos concursos listados.
+     */
+    private function calculateComparisonAverages(array $contestsList): array
+    {
+        $count = count($contestsList);
+        if ($count === 0) {
+            return [];
+        }
+
+        $sumTotal = 0;
+        $evensTotal = 0;
+        $oddsTotal = 0;
+        $primesTotal = 0;
+        $fibonacciTotal = 0;
+        $frameTotal = 0;
+        $centerTotal = 0;
+        $repeatedTotal = 0;
+        $repeatedCount = 0;
+        $scoreTotal = 0;
+        $scoreCount = 0;
+
+        foreach ($contestsList as $c) {
+            $sumTotal += $c['sum'];
+            $evensTotal += $c['evens'];
+            $oddsTotal += $c['odds'];
+            $primesTotal += $c['primes'];
+            $fibonacciTotal += $c['fibonacci'];
+            $frameTotal += $c['frame'];
+            $centerTotal += $c['center'];
+
+            if ($c['repeated_from_previous'] !== null) {
+                $repeatedTotal += $c['repeated_from_previous'];
+                $repeatedCount++;
+            }
+
+            if ($c['score'] !== null) {
+                $scoreTotal += $c['score'];
+                $scoreCount++;
+            }
+        }
+
+        return [
+            'avg_sum' => round($sumTotal / $count, 1),
+            'avg_evens' => round($evensTotal / $count, 1),
+            'avg_odds' => round($oddsTotal / $count, 1),
+            'avg_primes' => round($primesTotal / $count, 1),
+            'avg_fibonacci' => round($fibonacciTotal / $count, 1),
+            'avg_frame' => round($frameTotal / $count, 1),
+            'avg_center' => round($centerTotal / $count, 1),
+            'avg_repeated' => $repeatedCount > 0 ? round($repeatedTotal / $repeatedCount, 1) : null,
+            'avg_score' => $scoreCount > 0 ? round($scoreTotal / $scoreCount, 0) : null,
+        ];
+    }
 }

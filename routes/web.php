@@ -2,6 +2,7 @@
 
 use App\Livewire\Dashboard;
 use App\Livewire\LotofacilAnalysis;
+use App\Livewire\LotofacilContestComparison;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
@@ -15,6 +16,9 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/dashboard/analises-lotofacil', LotofacilAnalysis::class)
         ->name('lotofacil.analysis');
+
+    Route::get('/dashboard/analises-lotofacil/comparativo', LotofacilContestComparison::class)
+        ->name('lotofacil.contest_comparison');
 
     Route::get('/analises_lotofacil', LotofacilAnalysis::class)
         ->name('lotofacil.analises_lotofacil');

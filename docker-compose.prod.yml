@@ -18,6 +18,10 @@ services:
       # A chave deve ser a mesma do seu ambiente local, ou uma nova gerada com php artisan key:generate
       - APP_KEY=${APP_KEY}
       - APP_URL=${APP_URL:-http://localhost:8000}
+      - APP_TIMEZONE=${APP_TIMEZONE:-America/Sao_Paulo}
+      - APP_LOCALE=${APP_LOCALE:-pt_BR}
+      - APP_FALLBACK_LOCALE=${APP_FALLBACK_LOCALE:-pt_BR}
+      - APP_FAKER_LOCALE=${APP_FAKER_LOCALE:-pt_BR}
       - DB_CONNECTION=mysql
       - DB_HOST=mariadb
       - DB_PORT=3306
@@ -25,12 +29,16 @@ services:
       - DB_USERNAME=loterias
       - DB_PASSWORD=${DB_PASSWORD:-senha_segura_aqui}
       - SESSION_DRIVER=database
-      - CACHE_STORE=database
+      - CACHE_STORE=${CACHE_STORE:-redis}
       - QUEUE_CONNECTION=database
+      - REDIS_CLIENT=phpredis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     networks:
       - loterias_prod_network
     depends_on:
       - mariadb
+      - redis
 
   # Banco de dados
   mariadb:
@@ -47,10 +55,23 @@ services:
     networks:
       - loterias_prod_network
 
+  # Redis — serviço de cache em memória
+  redis:
+    image: redis:7-alpine
+    container_name: loterias_redis_prod
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - loterias_prod_network
+
 networks:
   loterias_prod_network:
     driver: bridge
 
 volumes:
   mariadb_prod_data:
+    driver: local
+  redis_prod_data:
     driver: local
