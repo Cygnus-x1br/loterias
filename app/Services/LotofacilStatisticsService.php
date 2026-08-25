@@ -754,12 +754,6 @@ class LotofacilStatisticsService
     /**
      * Calcula as cotas de repetição baseadas no atraso (delay) do histórico recente.
      * Dá preferência para repetições que estão mais "atrasadas" no histórico.
-     *
-     * @param int $minRepeated
-     * @param int $maxRepeated
-     * @param int $totalGames
-     * @param int $historyLimit
-     * @return array
      */
     public function calculateRepetitionQuotas(int $minRepeated, int $maxRepeated, int $totalGames, int $historyLimit = 50): array
     {

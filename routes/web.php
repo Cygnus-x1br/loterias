@@ -75,4 +75,12 @@ Route::middleware('auth')
             ->name('index');
     });
 
+Route::middleware('auth')
+    ->prefix('financeiro')
+    ->name('financial.')
+    ->group(function () {
+        Volt::route('/', 'pages.financial.index')
+            ->name('index');
+    });
+
 require __DIR__.'/auth.php';

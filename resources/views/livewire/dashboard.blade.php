@@ -102,6 +102,89 @@
         </div>
     </section>
 
+    <!-- Card de Desempenho Financeiro Acumulado -->
+    <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
+        <div class="flex flex-col justify-between gap-4 border-b border-slate-100 pb-5 lg:flex-row lg:items-center">
+            <div>
+                <div class="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                    <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+                    Módulo de Análise Financeira
+                </div>
+                <h2 class="mt-2 text-xl font-extrabold text-slate-900">
+                    Balanço Financeiro Acumulado (Gastos & Retornos)
+                </h2>
+                <p class="mt-1 text-sm text-slate-500">
+                    Totais acumulados considerando apenas jogos marcados como <strong>Apostados</strong> ou <strong>Conferidos</strong>.
+                </p>
+            </div>
+
+            <a
+                href="{{ route('financial.index') }}"
+                class="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-600"
+            >
+                <span>Ver detalhamento por concurso</span>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+            </a>
+        </div>
+
+        <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <!-- Gasto Total -->
+            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Gasto (Investido)</p>
+                <p class="mt-1.5 text-2xl font-extrabold text-slate-800">
+                    R$ {{ number_format($financialSummary['total_spent'] ?? 0, 2, ',', '.') }}
+                </p>
+                <p class="mt-1 text-xs text-slate-500">
+                    {{ $financialSummary['total_bets'] ?? 0 }} aposta(s) apostada(s)
+                </p>
+            </div>
+
+            <!-- Ganho Total -->
+            <div class="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-emerald-800">Total Ganho (Prêmios)</p>
+                <p class="mt-1.5 text-2xl font-extrabold text-emerald-600">
+                    R$ {{ number_format($financialSummary['total_return'] ?? 0, 2, ',', '.') }}
+                </p>
+                <p class="mt-1 text-xs text-emerald-700">
+                    {{ $financialSummary['awarded_bets'] ?? 0 }} aposta(s) premiada(s)
+                </p>
+            </div>
+
+            <!-- Saldo Líquido -->
+            @php
+                $netProfit = $financialSummary['net_profit'] ?? 0;
+                $isProfit = ($financialSummary['is_profit'] ?? true);
+            @endphp
+            <div class="rounded-xl border {{ $isProfit ? 'border-emerald-200 bg-emerald-50/60' : 'border-rose-200 bg-rose-50/60' }} p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider {{ $isProfit ? 'text-emerald-800' : 'text-rose-800' }}">
+                    Saldo Líquido
+                </p>
+                <p class="mt-1.5 text-2xl font-extrabold {{ $isProfit ? 'text-emerald-700' : 'text-rose-700' }}">
+                    {{ $isProfit ? '+' : '' }}R$ {{ number_format($netProfit, 2, ',', '.') }}
+                </p>
+                <span class="mt-1 inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-bold {{ $isProfit ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800' }}">
+                    {{ $isProfit ? '🟢 Lucro' : '🔴 Prejuízo' }}
+                </span>
+            </div>
+
+            <!-- ROI Acumulado -->
+            @php
+                $roi = $financialSummary['roi'] ?? 0;
+            @endphp
+            <div class="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-indigo-800">ROI (Retorno s/ Investimento)</p>
+                <p class="mt-1.5 text-2xl font-extrabold {{ $roi >= 0 ? 'text-indigo-700' : 'text-rose-600' }}">
+                    {{ $roi >= 0 ? '+' : '' }}{{ number_format($roi, 1, ',', '.') }}%
+                </p>
+                <p class="mt-1 text-xs text-slate-500">
+                    {{ $financialSummary['total_contests'] ?? 0 }} concurso(s) no histórico
+                </p>
+            </div>
+        </div>
+    </section>
+
     <section>
         <div class="mb-4">
             <h2 class="text-base font-bold text-slate-900">

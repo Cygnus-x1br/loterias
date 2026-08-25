@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Models\Bet;
 use App\Models\Closing;
+use App\Services\FinancialAnalysisService;
 use Livewire\Component;
 
 class Dashboard extends Component
@@ -14,6 +15,8 @@ class Dashboard extends Component
 
     public array $distribution = [];
 
+    public array $financialSummary = [];
+
     public function mount(): void
     {
         $this->loadDashboardData();
@@ -21,7 +24,10 @@ class Dashboard extends Component
 
     public function loadDashboardData(): void
     {
-        $userId = auth()->id();
+        $userId = (int) auth()->id();
+
+        $financialService = app(FinancialAnalysisService::class);
+        $this->financialSummary = $financialService->getOverallSummary($userId);
 
         $closingsQuery = Closing::query()
             ->where('user_id', $userId);

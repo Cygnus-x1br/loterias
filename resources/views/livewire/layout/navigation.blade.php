@@ -45,6 +45,10 @@ new class extends Component
                     <x-nav-link :href="route('closings.index')" :active="request()->routeIs('closings.*')" wire:navigate>
                         {{ __('Fechamentos') }}
                     </x-nav-link>
+
+                    <x-nav-link :href="route('financial.index')" :active="request()->routeIs('financial.*')" wire:navigate>
+                        {{ __('Financeiro') }}
+                    </x-nav-link>
                 </div>
             </div>
 
@@ -107,6 +111,10 @@ new class extends Component
 
             <x-responsive-nav-link :href="route('closings.index')" :active="request()->routeIs('closings.*')" wire:navigate>
                 {{ __('Fechamentos') }}
+            </x-responsive-nav-link>
+
+            <x-responsive-nav-link :href="route('financial.index')" :active="request()->routeIs('financial.*')" wire:navigate>
+                {{ __('Financeiro') }}
             </x-responsive-nav-link>
         </div>
 
