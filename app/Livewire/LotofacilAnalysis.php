@@ -124,7 +124,7 @@ class LotofacilAnalysis extends Component
 
         if ($this->lastContest && ! empty($this->lastContest['drawn_numbers'])) {
             try {
-                $this->lastContestScoreDetails = app(BetScoringService::class)->calculateScore($this->lastContest['drawn_numbers']);
+                $this->lastContestScoreDetails = app(BetScoringService::class)->calculateScore($this->lastContest['drawn_numbers'], $this->lastContest['contest_number']);
             } catch (\Throwable) {
                 $this->lastContestScoreDetails = null;
             }

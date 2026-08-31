@@ -47,7 +47,7 @@ class HistoricalResult extends Model
 
             if ($result->score === null && count($numbers) === 15) {
                 try {
-                    $scoreData = app(BetScoringService::class)->calculateScore($numbers);
+                    $scoreData = app(BetScoringService::class)->calculateScore($numbers, $result->contest_number);
                     $result->score = $scoreData['total_score'];
                 } catch (\Throwable) {
                     // Mantém score nulo caso o serviço de scoring não esteja disponível no contexto
@@ -66,13 +66,13 @@ class HistoricalResult extends Model
                     $cycleResults = HistoricalResult::where('cycle_number', $previousCycle)
                         ->where('contest_number', '<', $result->contest_number)
                         ->pluck('drawn_numbers');
-                    
+
                     $drawnInCycle = [];
                     foreach ($cycleResults as $drawn) {
                         $drawnArr = is_array($drawn) ? $drawn : json_decode((string) $drawn, true);
                         if (is_array($drawnArr)) {
                             foreach ($drawnArr as $num) {
-                                $drawnInCycle[(int)$num] = true;
+                                $drawnInCycle[(int) $num] = true;
                             }
                         }
                     }

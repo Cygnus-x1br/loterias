@@ -18,7 +18,7 @@ class BetScoringService
     /**
      * Calcula o score de uma sequência de 15 dezenas (0 a 1000 pontos).
      */
-    public function calculateScore(array $numbers): array
+    public function calculateScore(array $numbers, ?int $contextContestNumber = null): array
     {
         $numbers = array_map('intval', $numbers);
         sort($numbers);
@@ -88,9 +88,20 @@ class BetScoringService
         $totalScore += $details['frame_center']['points'];
 
         // 4. Repetição Último Concurso (Max 100)
-        $lastContestData = $this->statisticsService->getLastContestWithSum();
-        if ($lastContestData && isset($lastContestData['result']['drawn_numbers'])) {
-            $lastNumbers = $lastContestData['result']['drawn_numbers'];
+        $lastNumbers = null;
+        if ($contextContestNumber) {
+            $previousResult = HistoricalResult::where('contest_number', '<', $contextContestNumber)->orderBy('contest_number', 'desc')->first();
+            if ($previousResult) {
+                $lastNumbers = is_array($previousResult->drawn_numbers) ? $previousResult->drawn_numbers : json_decode((string) $previousResult->drawn_numbers, true);
+            }
+        } else {
+            $lastContestData = $this->statisticsService->getLastContestWithSum();
+            if ($lastContestData && isset($lastContestData['result']['drawn_numbers'])) {
+                $lastNumbers = $lastContestData['result']['drawn_numbers'];
+            }
+        }
+
+        if (is_array($lastNumbers)) {
             $intersect = count(array_intersect($numbers, $lastNumbers));
             $details['last_draw_repetition']['value'] = $intersect;
             if (in_array($intersect, [8, 9, 10])) {
@@ -103,14 +114,19 @@ class BetScoringService
 
         // 5. Ineditismo (Max 50)
         $hasDrawn = false;
+        $query = HistoricalResult::query();
+        if ($contextContestNumber) {
+            $query->where('contest_number', '<', $contextContestNumber);
+        }
+
         if (DB::connection()->getDriverName() === 'sqlite') {
-            $hasDrawn = HistoricalResult::get()->contains(function ($result) use ($numbers) {
+            $hasDrawn = $query->get()->contains(function ($result) use ($numbers) {
                 $drawn = is_array($result->drawn_numbers) ? $result->drawn_numbers : (json_decode((string) $result->drawn_numbers, true) ?? []);
 
                 return count(array_intersect($drawn, $numbers)) === 15;
             });
         } else {
-            $hasDrawn = HistoricalResult::whereJsonContains('drawn_numbers', $numbers)->exists();
+            $hasDrawn = $query->whereJsonContains('drawn_numbers', $numbers)->exists();
         }
 
         $details['never_drawn']['value'] = ! $hasDrawn;
@@ -273,8 +289,31 @@ class BetScoringService
             }
         }
 
+        $classData = $this->getScoreClassification($totalScore);
+
+        return [
+            'total_score' => $totalScore,
+            'max_score' => 1000,
+            'classification' => $classData['classification'],
+            'color' => $classData['color'],
+            'sum' => $sum,
+            'evens' => $evens,
+            'odds' => $odds,
+            'hot_count' => $hotCount,
+            'neutral_count' => $neutralCount,
+            'cold_count' => $coldCount,
+            'details' => $details,
+        ];
+    }
+
+    /**
+     * Retorna a classificação e cor com base no score total.
+     */
+    public function getScoreClassification(int $totalScore): array
+    {
         $classification = '🔴 Fora da Curva';
         $color = 'rose';
+
         if ($totalScore >= 800) {
             $classification = '🟢 Excelente';
             $color = 'emerald';
@@ -287,17 +326,8 @@ class BetScoringService
         }
 
         return [
-            'total_score' => $totalScore,
-            'max_score' => 1000,
             'classification' => $classification,
             'color' => $color,
-            'sum' => $sum,
-            'evens' => $evens,
-            'odds' => $odds,
-            'hot_count' => $hotCount,
-            'neutral_count' => $neutralCount,
-            'cold_count' => $coldCount,
-            'details' => $details,
         ];
     }
 }

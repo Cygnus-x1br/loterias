@@ -28,7 +28,7 @@ class HistoricalResultService
 
         if (! isset($data['score']) || $data['score'] === null) {
             try {
-                $scoreResult = $this->scoringService->calculateScore($numbers);
+                $scoreResult = $this->scoringService->calculateScore($numbers, $data['contest_number'] ?? null);
                 $data['score'] = $scoreResult['total_score'];
             } catch (\Throwable) {
                 // Deixa o hook do modelo ou nulo caso não seja possível calcular
@@ -57,7 +57,7 @@ class HistoricalResultService
 
         if (! isset($data['score']) || $data['score'] === null) {
             try {
-                $scoreResult = $this->scoringService->calculateScore($numbers);
+                $scoreResult = $this->scoringService->calculateScore($numbers, $result->contest_number);
                 $data['score'] = $scoreResult['total_score'];
             } catch (\Throwable) {
                 // Mantém score inalterado caso o serviço de score falhe

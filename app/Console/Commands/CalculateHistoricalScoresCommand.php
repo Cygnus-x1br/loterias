@@ -45,17 +45,17 @@ class CalculateHistoricalScoresCommand extends Command
 
         foreach ($results as $result) {
             $numbers = is_array($result->drawn_numbers) ? $result->drawn_numbers : json_decode((string) $result->drawn_numbers, true);
-            
+
             if (is_array($numbers) && count($numbers) === 15) {
                 $numbers = array_map('intval', $numbers);
-                
+
                 // 1. Calculate Score
-                $scoreResult = $scoringService->calculateScore($numbers);
+                $scoreResult = $scoringService->calculateScore($numbers, $result->contest_number);
                 $result->score = $scoreResult['total_score'];
 
                 // 2. Calculate Cycle
                 foreach ($numbers as $num) {
-                    $drawnInCycle[(int)$num] = true;
+                    $drawnInCycle[(int) $num] = true;
                 }
 
                 $result->cycle_number = $currentCycle;
@@ -76,4 +76,3 @@ class CalculateHistoricalScoresCommand extends Command
         $this->info('Scores e ciclos calculados com sucesso!');
     }
 }
-

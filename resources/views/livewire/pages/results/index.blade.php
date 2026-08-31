@@ -98,8 +98,13 @@ new #[Layout('layouts.app', ['title' => 'Sorteios da Lotofácil'])] class extend
 
         $scoringService = app(\App\Services\BetScoringService::class);
         $results->getCollection()->transform(function ($result) use ($scoringService) {
-            $numbers = is_array($result->drawn_numbers) ? $result->drawn_numbers : (json_decode((string) $result->drawn_numbers, true) ?? []);
-            $result->scoreData = $scoringService->calculateScore($numbers);
+            $score = $result->score ?? 0;
+            $classData = $scoringService->getScoreClassification($score);
+            $result->scoreData = [
+                'total_score' => $score,
+                'classification' => $classData['classification'],
+                'color' => $classData['color']
+            ];
             return $result;
         });
 

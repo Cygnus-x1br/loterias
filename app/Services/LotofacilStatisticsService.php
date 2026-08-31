@@ -817,7 +817,7 @@ class LotofacilStatisticsService
             $scoreData = null;
             if ($betScoringService && count($drawn) === 15) {
                 try {
-                    $scoreData = $betScoringService->calculateScore($drawn);
+                    $scoreData = $betScoringService->calculateScore($drawn, $current->contest_number);
                 } catch (\Throwable) {
                     $scoreData = null;
                 }
