@@ -3,6 +3,8 @@
 namespace App\Livewire;
 
 use App\Models\HistoricalResult;
+use App\Services\BetScoringService;
+use App\Services\LotofacilStatisticsService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -35,6 +37,8 @@ class LotofacilAnalysis extends Component
     public ?array $currentDelayAnalysis = null;
 
     public ?array $lastContest = null;
+
+    public ?array $lastContestScoreDetails = null;
 
     public int $totalContests = 0;
 
@@ -113,10 +117,20 @@ class LotofacilAnalysis extends Component
         $this->evenOddAnalysis = $analysisData['even_odd_analysis'];
         $this->frameCenterAnalysis = $analysisData['frame_center_analysis'];
         $this->consecutiveSequencesAnalysis = $analysisData['consecutive_sequences'];
-        
-        $statisticsService = app(\App\Services\LotofacilStatisticsService::class);
+
+        $statisticsService = app(LotofacilStatisticsService::class);
         $this->decadesCycleAnalysis = $statisticsService->getDecadesCycleAnalysis();
         $this->currentDelayAnalysis = $statisticsService->getCurrentDelayAnalysis();
+
+        if ($this->lastContest && ! empty($this->lastContest['drawn_numbers'])) {
+            try {
+                $this->lastContestScoreDetails = app(BetScoringService::class)->calculateScore($this->lastContest['drawn_numbers']);
+            } catch (\Throwable) {
+                $this->lastContestScoreDetails = null;
+            }
+        } else {
+            $this->lastContestScoreDetails = null;
+        }
     }
 
     /**

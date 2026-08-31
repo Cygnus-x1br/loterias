@@ -914,16 +914,9 @@ class LotofacilStatisticsService
     public function getDecadesCycleAnalysis(): array
     {
         return Cache::remember('lotofacil_decades_cycle', now()->addMinutes(30), function () {
-            $results = HistoricalResult::query()
-                ->orderBy('contest_number', 'desc')
-                ->take(100) // 100 sorteios é mais do que o suficiente para fechar um ciclo
-                ->get(['contest_number', 'drawn_numbers']);
+            $latestResult = HistoricalResult::orderBy('contest_number', 'desc')->first(['contest_number', 'cycle_number']);
 
-            $drawnSinceLastCycle = [];
-            $cycleStartContest = null;
-            $contestsCount = 0;
-
-            if ($results->isEmpty()) {
+            if (! $latestResult || ! $latestResult->cycle_number) {
                 return [
                     'missing_numbers' => [],
                     'missing_count' => 25,
@@ -933,37 +926,24 @@ class LotofacilStatisticsService
                 ];
             }
 
-            foreach ($results as $result) {
+            $currentCycle = $latestResult->cycle_number;
+
+            $cycleResults = HistoricalResult::where('cycle_number', $currentCycle)
+                ->orderBy('contest_number', 'asc')
+                ->get(['contest_number', 'drawn_numbers']);
+
+            $drawnSinceLastCycle = [];
+            $contestsCount = 0;
+            $cycleStartContest = $cycleResults->first()->contest_number ?? $latestResult->contest_number;
+
+            foreach ($cycleResults as $result) {
                 $numbers = is_array($result->drawn_numbers) ? $result->drawn_numbers : json_decode((string) $result->drawn_numbers, true);
                 if (is_array($numbers)) {
                     foreach ($numbers as $num) {
                         $drawnSinceLastCycle[(int) $num] = true;
                     }
                 }
-
                 $contestsCount++;
-
-                if (count($drawnSinceLastCycle) === 25) {
-                    break;
-                }
-            }
-
-            if (count($drawnSinceLastCycle) === 25) {
-                // Ciclo fechou no último concurso analisado no loop ou neste que estamos abrindo
-                // Se o ciclo fechou no último concurso (ou seja, 0 dezenas faltando para fechar),
-                // o ciclo atual recomeça contando apenas a partir do último resultado!
-                $drawnSinceLastCycle = [];
-                $latest = $results->first();
-                $numbers = is_array($latest->drawn_numbers) ? $latest->drawn_numbers : json_decode((string) $latest->drawn_numbers, true);
-                if (is_array($numbers)) {
-                    foreach ($numbers as $num) {
-                        $drawnSinceLastCycle[(int) $num] = true;
-                    }
-                }
-                $contestsCount = 1;
-                $cycleStartContest = $latest->contest_number;
-            } else {
-                $cycleStartContest = $results->first()->contest_number - $contestsCount + 1;
             }
 
             $missingNumbers = [];
@@ -994,15 +974,19 @@ class LotofacilStatisticsService
                 ->take(50) // 50 sorteios devem cobrir o maior atraso
                 ->get(['contest_number', 'drawn_numbers']);
 
-            $delays = [];
-
-            for ($i = 1; $i <= 25; $i++) {
-                $delays[$i] = 50; // default 50+ se não achar
-            }
-
             if ($results->isEmpty()) {
-                return $delays;
+                $emptyDelays = [];
+                for ($i = 1; $i <= 25; $i++) {
+                    $emptyDelays[] = [
+                        'number' => $i,
+                        'delay' => 0,
+                    ];
+                }
+
+                return $emptyDelays;
             }
+
+            $delays = [];
 
             foreach (range(1, 25) as $num) {
                 $delay = 0;

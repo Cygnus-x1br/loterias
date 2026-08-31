@@ -88,7 +88,7 @@
     @else
         {{-- Card Resumo do Último Sorteio --}}
         @if ($lastContest)
-            <section class="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/70 via-white to-slate-50 p-5 shadow-sm sm:p-6">
+            <section class="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/70 via-white to-slate-50 p-5 shadow-sm sm:p-6 space-y-5" x-data="{ showScoreBreakdown: true }">
                 <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                     <div>
                         <div class="inline-flex items-center gap-2 rounded-full bg-indigo-100/80 px-2.5 py-0.5 text-xs font-bold text-indigo-800">
@@ -102,20 +102,238 @@
                         </h2>
                     </div>
 
-                    <div class="flex items-center gap-2 text-xs text-slate-600">
-                        <span class="rounded-lg bg-white px-3 py-1.5 font-bold shadow-sm border border-slate-200">
+                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                        @if ($lastContestScoreDetails)
+                            <div class="inline-flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 font-bold shadow-sm border border-slate-200">
+                                <span class="text-slate-500">Score do Sorteio:</span>
+                                <span @class([
+                                    'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-black',
+                                    'bg-emerald-50 text-emerald-700 border border-emerald-200' => $lastContestScoreDetails['color'] === 'emerald',
+                                    'bg-amber-50 text-amber-700 border border-amber-200' => $lastContestScoreDetails['color'] === 'amber',
+                                    'bg-orange-50 text-orange-700 border border-orange-200' => $lastContestScoreDetails['color'] === 'orange',
+                                    'bg-rose-50 text-rose-700 border border-rose-200' => $lastContestScoreDetails['color'] === 'rose',
+                                    'bg-slate-50 text-slate-700 border border-slate-200' => $lastContestScoreDetails['color'] === 'slate',
+                                ])>
+                                    <span @class([
+                                        'h-2 w-2 rounded-full',
+                                        'bg-emerald-500' => $lastContestScoreDetails['color'] === 'emerald',
+                                        'bg-amber-500' => $lastContestScoreDetails['color'] === 'amber',
+                                        'bg-orange-500' => $lastContestScoreDetails['color'] === 'orange',
+                                        'bg-rose-500' => $lastContestScoreDetails['color'] === 'rose',
+                                        'bg-slate-400' => $lastContestScoreDetails['color'] === 'slate',
+                                    ])></span>
+                                    {{ $lastContestScoreDetails['total_score'] }} pts ({{ $lastContestScoreDetails['classification'] }})
+                                </span>
+                            </div>
+                        @endif
+
+                        <span class="rounded-xl bg-white px-3 py-2 font-bold shadow-sm border border-slate-200 text-slate-600">
                             Base: <strong>{{ number_format($totalContests, 0, ',', '.') }}</strong> concursos analisados
                         </span>
                     </div>
                 </div>
 
-                <div class="mt-4 flex flex-wrap gap-2">
+                {{-- Dezenas sorteadas --}}
+                <div class="flex flex-wrap gap-2">
                     @foreach ($lastContest['drawn_numbers'] as $number)
                         <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-sm font-bold text-white shadow-sm shadow-indigo-600/30">
                             {{ str_pad($number, 2, '0', STR_PAD_LEFT) }}
                         </span>
                     @endforeach
                 </div>
+
+                {{-- Detalhamento das Métricas do Score do Último Sorteio --}}
+                @if ($lastContestScoreDetails)
+                    <div class="rounded-xl border border-indigo-100 bg-white p-4 shadow-xs">
+                        <div class="flex flex-col justify-between gap-2 sm:flex-row sm:items-center border-b border-slate-100 pb-3">
+                            <div class="flex items-center gap-2">
+                                <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 font-bold text-xs">
+                                    ★
+                                </span>
+                                <div>
+                                    <h3 class="text-sm font-bold text-slate-800">
+                                        Como este sorteio pontuou ({{ $lastContestScoreDetails['total_score'] }} / 1.000 pts)
+                                    </h3>
+                                    <p class="text-[11px] text-slate-400">
+                                        Métricas estatísticas e distribuição de pontos acumulados pelas dezenas sorteadas.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                @click="showScoreBreakdown = !showScoreBreakdown"
+                                class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                            >
+                                <span x-text="showScoreBreakdown ? 'Recolher métricas' : 'Ver métricas de pontuação'"></span>
+                                <svg class="h-4 w-4 transform transition-transform duration-200" :class="{ 'rotate-180': showScoreBreakdown }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        {{-- Barra de Progresso do Score --}}
+                        <div class="mt-3">
+                            <div class="flex justify-between text-xs font-medium text-slate-500 mb-1">
+                                <span>Aderência Estatística</span>
+                                <span class="font-bold text-slate-700">{{ $lastContestScoreDetails['total_score'] }} / 1.000 pts ({{ round($lastContestScoreDetails['total_score'] / 10) }}%)</span>
+                            </div>
+                            <div class="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                    class="h-full rounded-full transition-all duration-500 @if($lastContestScoreDetails['color'] === 'emerald') bg-emerald-500 @elseif($lastContestScoreDetails['color'] === 'amber') bg-amber-500 @elseif($lastContestScoreDetails['color'] === 'orange') bg-orange-500 @else bg-rose-500 @endif"
+                                    style="width: {{ min(100, max(0, $lastContestScoreDetails['total_score'] / 10)) }}%"
+                                ></div>
+                            </div>
+                        </div>
+
+                        {{-- Grade de Critérios --}}
+                        <div x-show="showScoreBreakdown" x-transition class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                            {{-- 1. Soma --}}
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-600">1. Soma das Dezenas</span>
+                                    <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-slate-200">
+                                        +{{ $lastContestScoreDetails['details']['sum']['points'] ?? 0 }} / 100 pts
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-sm font-bold text-slate-800">
+                                    Soma: {{ $lastContestScoreDetails['details']['sum']['value'] ?? 0 }}
+                                </p>
+                                <span class="text-[11px] text-slate-500">
+                                    {{ (($lastContestScoreDetails['details']['sum']['value'] ?? 0) >= 180 && ($lastContestScoreDetails['details']['sum']['value'] ?? 0) <= 220) ? '✓ Faixa ideal (180 a 220)' : 'Fora da faixa mais comum' }}
+                                </span>
+                            </div>
+
+                            {{-- 2. Pares e Ímpares --}}
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-600">2. Pares & Ímpares</span>
+                                    <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-slate-200">
+                                        +{{ $lastContestScoreDetails['details']['even_odd']['points'] ?? 0 }} / 100 pts
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-sm font-bold text-slate-800">
+                                    {{ $lastContestScoreDetails['details']['even_odd']['value'] ?? '—' }}
+                                </p>
+                                <span class="text-[11px] text-slate-500">
+                                    {{ (($lastContestScoreDetails['details']['even_odd']['points'] ?? 0) == 100) ? '✓ Padrão ideal (7p/8i ou 8p/7i)' : 'Equilíbrio secundário' }}
+                                </span>
+                            </div>
+
+                            {{-- 3. Moldura e Centro --}}
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-600">3. Moldura & Centro</span>
+                                    <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-slate-200">
+                                        +{{ $lastContestScoreDetails['details']['frame_center']['points'] ?? 0 }} / 100 pts
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-sm font-bold text-slate-800">
+                                    {{ $lastContestScoreDetails['details']['frame_center']['value'] ?? '—' }}
+                                </p>
+                                <span class="text-[11px] text-slate-500">
+                                    {{ (($lastContestScoreDetails['details']['frame_center']['points'] ?? 0) == 100) ? '✓ Padrão ideal (10m/5c ou 9m/6c)' : 'Distribuição secundária' }}
+                                </span>
+                            </div>
+
+                            {{-- 4. Repetições do Anterior --}}
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-600">4. Repetições do Anterior</span>
+                                    <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-slate-200">
+                                        +{{ $lastContestScoreDetails['details']['last_draw_repetition']['points'] ?? 0 }} / 100 pts
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-sm font-bold text-slate-800">
+                                    {{ $lastContestScoreDetails['details']['last_draw_repetition']['value'] ?? 0 }} dezenas repetidas
+                                </p>
+                                <span class="text-[11px] text-slate-500">
+                                    {{ in_array($lastContestScoreDetails['details']['last_draw_repetition']['value'] ?? 0, [8, 9, 10]) ? '✓ Dentro da média (8 a 10)' : 'Fora da média principal' }}
+                                </span>
+                            </div>
+
+                            {{-- 5. Ineditismo --}}
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-600">5. Ineditismo</span>
+                                    <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-slate-200">
+                                        +{{ $lastContestScoreDetails['details']['never_drawn']['points'] ?? 0 }} / 50 pts
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-sm font-bold text-slate-800">
+                                    {{ ($lastContestScoreDetails['details']['never_drawn']['value'] ?? false) ? 'Combinação Inédita' : 'Combinação Já Sorteada' }}
+                                </p>
+                                <span class="text-[11px] text-slate-500">
+                                    {{ ($lastContestScoreDetails['details']['never_drawn']['value'] ?? false) ? '✓ 100% exclusiva na história' : 'Já ocorreu anteriormente' }}
+                                </span>
+                            </div>
+
+                            {{-- 6. Top 10 Dezenas Mais Frequentes --}}
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-600">6. Top 10 Dezenas</span>
+                                    <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-slate-200">
+                                        +{{ $lastContestScoreDetails['details']['top_10_numbers']['points'] ?? 0 }} / 50 pts
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-sm font-bold text-slate-800">
+                                    {{ $lastContestScoreDetails['details']['top_10_numbers']['value'] ?? 0 }} dezenas presentes
+                                </p>
+                                <span class="text-[11px] text-slate-500">
+                                    Das 10 dezenas mais sorteadas da história
+                                </span>
+                            </div>
+
+                            {{-- 7. Top 10 Pares & Trios --}}
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-600">7. Pares & Trios Top 10</span>
+                                    <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-slate-200">
+                                        +{{ ($lastContestScoreDetails['details']['top_pairs']['points'] ?? 0) + ($lastContestScoreDetails['details']['top_trios']['points'] ?? 0) }} / 70 pts
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-sm font-bold text-slate-800">
+                                    {{ $lastContestScoreDetails['details']['top_pairs']['value'] ?? 0 }} pares / {{ $lastContestScoreDetails['details']['top_trios']['value'] ?? 0 }} trios
+                                </p>
+                                <span class="text-[11px] text-slate-500">
+                                    Combinações históricas mais frequentes
+                                </span>
+                            </div>
+
+                            {{-- 8. Sequências Consecutivas --}}
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-600">8. Sequências Consecutivas</span>
+                                    <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-slate-200">
+                                        +{{ ($lastContestScoreDetails['details']['top_consecutive_pairs']['points'] ?? 0) + ($lastContestScoreDetails['details']['top_consecutive_trios']['points'] ?? 0) + ($lastContestScoreDetails['details']['top_consecutive_quads']['points'] ?? 0) }} / 30 pts
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-sm font-bold text-slate-800">
+                                    {{ $lastContestScoreDetails['details']['top_consecutive_pairs']['value'] ?? 0 }} duplas / {{ $lastContestScoreDetails['details']['top_consecutive_trios']['value'] ?? 0 }} trincas
+                                </p>
+                                <span class="text-[11px] text-slate-500">
+                                    Alinhamento com sequências naturais
+                                </span>
+                            </div>
+
+                            {{-- 9. Ciclo e Atraso --}}
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-600">9. Ciclo & Atraso</span>
+                                    <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-slate-200">
+                                        +{{ ($lastContestScoreDetails['details']['cycle']['points'] ?? 0) + ($lastContestScoreDetails['details']['delay']['points'] ?? 0) }} / 300 pts
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-sm font-bold text-slate-800">
+                                    {{ $lastContestScoreDetails['details']['cycle']['value'] ?? 0 }} do ciclo / {{ $lastContestScoreDetails['details']['delay']['value'] ?? 0 }} atrasadas
+                                </p>
+                                <span class="text-[11px] text-slate-500">
+                                    Pontuação de ciclo e dezenas atrasadas
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                @endif
             </section>
         @endif
 
