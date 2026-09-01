@@ -911,10 +911,16 @@ class LotofacilStatisticsService
     /**
      * Calcula o ciclo atual das dezenas (quantas faltam e quais faltam para fechar o ciclo).
      */
-    public function getDecadesCycleAnalysis(): array
+    public function getDecadesCycleAnalysis(?int $contextContestNumber = null): array
     {
-        return Cache::remember('lotofacil_decades_cycle', now()->addMinutes(30), function () {
-            $latestResult = HistoricalResult::orderBy('contest_number', 'desc')->first(['contest_number', 'cycle_number']);
+        $cacheKey = 'lotofacil_decades_cycle' . ($contextContestNumber ? '_' . $contextContestNumber : '');
+
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($contextContestNumber) {
+            $query = HistoricalResult::query();
+            if ($contextContestNumber) {
+                $query->where('contest_number', '<', $contextContestNumber);
+            }
+            $latestResult = $query->orderBy('contest_number', 'desc')->first(['contest_number', 'cycle_number']);
 
             if (! $latestResult || ! $latestResult->cycle_number) {
                 return [
@@ -923,25 +929,41 @@ class LotofacilStatisticsService
                     'drawn_count' => 0,
                     'contests_in_current_cycle' => 0,
                     'started_at_contest' => null,
+                    'cycle_progression' => [],
+                    'average_cycle_length' => 0,
                 ];
             }
 
             $currentCycle = $latestResult->cycle_number;
 
-            $cycleResults = HistoricalResult::where('cycle_number', $currentCycle)
-                ->orderBy('contest_number', 'asc')
+            $cycleQuery = HistoricalResult::where('cycle_number', $currentCycle);
+            if ($contextContestNumber) {
+                $cycleQuery->where('contest_number', '<', $contextContestNumber);
+            }
+
+            $cycleResults = $cycleQuery->orderBy('contest_number', 'asc')
                 ->get(['contest_number', 'drawn_numbers']);
 
             $drawnSinceLastCycle = [];
             $contestsCount = 0;
             $cycleStartContest = $cycleResults->first()->contest_number ?? $latestResult->contest_number;
+            
+            $cycleProgression = [];
 
             foreach ($cycleResults as $result) {
                 $numbers = is_array($result->drawn_numbers) ? $result->drawn_numbers : json_decode((string) $result->drawn_numbers, true);
                 if (is_array($numbers)) {
+                    $newInCycle = [];
                     foreach ($numbers as $num) {
-                        $drawnSinceLastCycle[(int) $num] = true;
+                        if (! isset($drawnSinceLastCycle[(int) $num])) {
+                            $newInCycle[] = $num;
+                            $drawnSinceLastCycle[(int) $num] = true;
+                        }
                     }
+                    $cycleProgression[] = [
+                        'contest_number' => $result->contest_number,
+                        'drawn_numbers' => $newInCycle
+                    ];
                 }
                 $contestsCount++;
             }
@@ -952,6 +974,14 @@ class LotofacilStatisticsService
                     $missingNumbers[] = $i;
                 }
             }
+            
+            $averageCycleLength = HistoricalResult::query()
+                ->whereNotNull('cycle_number')
+                ->where('cycle_number', '<', $currentCycle)
+                ->selectRaw('cycle_number, count(*) as total_contests')
+                ->groupBy('cycle_number')
+                ->get()
+                ->avg('total_contests') ?? 0;
 
             return [
                 'missing_numbers' => $missingNumbers,
@@ -959,6 +989,8 @@ class LotofacilStatisticsService
                 'drawn_count' => 25 - count($missingNumbers),
                 'contests_in_current_cycle' => $contestsCount,
                 'started_at_contest' => $cycleStartContest,
+                'cycle_progression' => $cycleProgression,
+                'average_cycle_length' => round($averageCycleLength, 2),
             ];
         });
     }
@@ -966,11 +998,17 @@ class LotofacilStatisticsService
     /**
      * Calcula o atraso (delay) atual de cada dezena (quantos concursos faz que ela não sai).
      */
-    public function getCurrentDelayAnalysis(): array
+    public function getCurrentDelayAnalysis(?int $contextContestNumber = null): array
     {
-        return Cache::remember('lotofacil_current_delay', now()->addMinutes(30), function () {
-            $results = HistoricalResult::query()
-                ->orderBy('contest_number', 'desc')
+        $cacheKey = 'lotofacil_current_delay' . ($contextContestNumber ? '_' . $contextContestNumber : '');
+
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($contextContestNumber) {
+            $query = HistoricalResult::query();
+            if ($contextContestNumber) {
+                $query->where('contest_number', '<', $contextContestNumber);
+            }
+
+            $results = $query->orderBy('contest_number', 'desc')
                 ->take(50) // 50 sorteios devem cobrir o maior atraso
                 ->get(['contest_number', 'drawn_numbers']);
 

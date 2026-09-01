@@ -749,7 +749,7 @@
                 </div>
             </div>
             
-            <div class="grid gap-4 sm:grid-cols-3">
+            <div class="grid gap-4 sm:grid-cols-4">
                 <div class="rounded-xl border border-slate-100 bg-slate-50 p-4">
                     <span class="text-xs font-semibold text-slate-500">Progresso do Ciclo</span>
                     <p class="mt-1 text-2xl font-black text-pink-600">
@@ -769,6 +769,16 @@
                         Iniciado no concurso #{{ $decadesCycleAnalysis['started_at_contest'] ?? '—' }}
                     </p>
                 </div>
+
+                <div class="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <span class="text-xs font-semibold text-slate-500">Média para Fechar</span>
+                    <p class="mt-1 text-2xl font-black text-slate-900">
+                        {{ number_format($decadesCycleAnalysis['average_cycle_length'] ?? 0, 1, ',', '.') }}
+                    </p>
+                    <p class="mt-1 text-xs text-slate-500">
+                        concursos em média por ciclo.
+                    </p>
+                </div>
                 
                 <div class="rounded-xl border border-slate-100 bg-pink-50/50 p-4">
                     <span class="text-xs font-semibold text-pink-900">Dezenas Restantes</span>
@@ -782,6 +792,37 @@
                         @endforelse
                     </div>
                 </div>
+            </div>
+
+            <div class="mt-6 rounded-xl border border-slate-100 overflow-hidden">
+                <table class="w-full text-left text-sm text-slate-600">
+                    <thead class="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-100">
+                        <tr>
+                            <th scope="col" class="px-4 py-3 font-semibold w-32">Concurso</th>
+                            <th scope="col" class="px-4 py-3 font-semibold">Dezenas Sorteadas</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse ($decadesCycleAnalysis['cycle_progression'] ?? [] as $progression)
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="px-4 py-3 font-semibold text-slate-900">#{{ $progression['contest_number'] }}</td>
+                                <td class="px-4 py-3">
+                                    <div class="flex flex-wrap gap-1.5">
+                                        @foreach ($progression['drawn_numbers'] as $num)
+                                            <span class="inline-flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700">
+                                                {{ str_pad($num, 2, '0', STR_PAD_LEFT) }}
+                                            </span>
+                                        @endforeach
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="2" class="px-4 py-4 text-center text-xs text-slate-500">Nenhum concurso computado para o ciclo atual.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
             </div>
         </section>
 

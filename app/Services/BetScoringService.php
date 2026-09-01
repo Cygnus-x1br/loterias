@@ -243,7 +243,7 @@ class BetScoringService
         }
 
         // 12. Ciclo das Dezenas (Max 150)
-        $cycleData = $this->statisticsService->getDecadesCycleAnalysis();
+        $cycleData = $this->statisticsService->getDecadesCycleAnalysis($contextContestNumber);
         $missingNumbers = $cycleData['missing_numbers'] ?? [];
         $intersectCycle = count(array_intersect($numbers, $missingNumbers));
         $details['cycle'] = ['points' => 0, 'value' => $intersectCycle];
@@ -260,7 +260,7 @@ class BetScoringService
         $totalScore += $details['cycle']['points'];
 
         // 13. Atraso (Delay) (Max 150)
-        $delayData = $this->statisticsService->getCurrentDelayAnalysis();
+        $delayData = $this->statisticsService->getCurrentDelayAnalysis($contextContestNumber);
         $topDelayed = array_slice($delayData, 0, 8); // Top 8 mais atrasadas
         $delayedNumbers = array_column($topDelayed, 'number');
         $intersectDelay = count(array_intersect($numbers, $delayedNumbers));
