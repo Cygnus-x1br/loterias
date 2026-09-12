@@ -60,6 +60,16 @@ class BetScoringServiceTest extends TestCase
                 $mock->shouldReceive('getNumberTemperatureClassification')->andReturn(
                     array_fill(1, 25, ['temperature' => 'neutral', 'recent_count' => 5, 'total_count' => 50, 'delay' => 1])
                 );
+
+                $mock->shouldReceive('getDecadesCycleAnalysis')->andReturn([
+                    'missing_numbers' => [],
+                    'missing_count' => 0,
+                    'cycle_number' => 1,
+                    'total_contests_in_cycle' => 1,
+                    'drawn_in_cycle' => range(1, 25),
+                ]);
+
+                $mock->shouldReceive('getCurrentDelayAnalysis')->andReturn([]);
             })
         );
 

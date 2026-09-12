@@ -258,9 +258,17 @@ class LotofacilStatisticsService
      */
     public function getLastContest(): ?HistoricalResult
     {
-        return Cache::remember('last_contest', now()->addMinutes(30), function () {
-            return HistoricalResult::orderByDesc('contest_number')->first();
+        $cachedAttributes = Cache::remember('last_contest', now()->addMinutes(30), function () {
+            $last = HistoricalResult::orderByDesc('contest_number')->first();
+
+            return $last ? $last->getAttributes() : null;
         });
+
+        if (! $cachedAttributes || ! is_array($cachedAttributes)) {
+            return null;
+        }
+
+        return (new HistoricalResult)->newFromBuilder($cachedAttributes);
     }
 
     /**
@@ -913,7 +921,7 @@ class LotofacilStatisticsService
      */
     public function getDecadesCycleAnalysis(?int $contextContestNumber = null): array
     {
-        $cacheKey = 'lotofacil_decades_cycle' . ($contextContestNumber ? '_' . $contextContestNumber : '');
+        $cacheKey = 'lotofacil_decades_cycle'.($contextContestNumber ? '_'.$contextContestNumber : '');
 
         return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($contextContestNumber) {
             $query = HistoricalResult::query();
@@ -947,7 +955,7 @@ class LotofacilStatisticsService
             $drawnSinceLastCycle = [];
             $contestsCount = 0;
             $cycleStartContest = $cycleResults->first()->contest_number ?? $latestResult->contest_number;
-            
+
             $cycleProgression = [];
 
             foreach ($cycleResults as $result) {
@@ -962,7 +970,7 @@ class LotofacilStatisticsService
                     }
                     $cycleProgression[] = [
                         'contest_number' => $result->contest_number,
-                        'drawn_numbers' => $newInCycle
+                        'drawn_numbers' => $newInCycle,
                     ];
                 }
                 $contestsCount++;
@@ -974,7 +982,7 @@ class LotofacilStatisticsService
                     $missingNumbers[] = $i;
                 }
             }
-            
+
             $averageCycleLength = HistoricalResult::query()
                 ->whereNotNull('cycle_number')
                 ->where('cycle_number', '<', $currentCycle)
@@ -1000,7 +1008,7 @@ class LotofacilStatisticsService
      */
     public function getCurrentDelayAnalysis(?int $contextContestNumber = null): array
     {
-        $cacheKey = 'lotofacil_current_delay' . ($contextContestNumber ? '_' . $contextContestNumber : '');
+        $cacheKey = 'lotofacil_current_delay'.($contextContestNumber ? '_'.$contextContestNumber : '');
 
         return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($contextContestNumber) {
             $query = HistoricalResult::query();

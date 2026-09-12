@@ -456,4 +456,54 @@ class BalancedBetGeneratorTest extends TestCase
             ]);
         }
     }
+
+    public function test_generates_multiple_balanced_closings_consecutively_without_cache_serialization_error(): void
+    {
+        $user = User::factory()->create();
+
+        HistoricalResult::create([
+            'contest_number' => 3000,
+            'draw_date' => now()->toDateString(),
+            'drawn_numbers' => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            'drawn_numbers_hash' => HistoricalResult::generateDrawnNumbersHash(range(1, 15)),
+        ]);
+
+        $generator = app(ClosingGenerator::class);
+
+        // Primeiro fechamento (popula o cache de last_contest)
+        $closing1 = Closing::factory()->create([
+            'user_id' => $user->id,
+            'name' => 'Fechamento 1',
+            'method' => 'balanced',
+            'status' => 'draft',
+            'base_numbers' => range(1, 25),
+            'bet_size' => 15,
+            'planned_bets' => 2,
+            'parameters' => [
+                'repeated_last_draw' => [8, 10],
+            ],
+        ]);
+
+        $createdBets1 = $generator->generate($closing1);
+        $this->assertSame(2, $createdBets1);
+        $this->assertDatabaseHas('closings', ['id' => $closing1->id, 'status' => 'completed']);
+
+        // Segundo fechamento (lê do cache populado pelo primeiro)
+        $closing2 = Closing::factory()->create([
+            'user_id' => $user->id,
+            'name' => 'Fechamento 2',
+            'method' => 'balanced',
+            'status' => 'draft',
+            'base_numbers' => range(1, 25),
+            'bet_size' => 15,
+            'planned_bets' => 2,
+            'parameters' => [
+                'repeated_last_draw' => [8, 10],
+            ],
+        ]);
+
+        $createdBets2 = $generator->generate($closing2);
+        $this->assertSame(2, $createdBets2);
+        $this->assertDatabaseHas('closings', ['id' => $closing2->id, 'status' => 'completed']);
+    }
 }
