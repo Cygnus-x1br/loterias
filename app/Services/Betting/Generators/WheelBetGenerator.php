@@ -3,6 +3,7 @@
 namespace App\Services\Betting\Generators;
 
 use App\Models\Closing;
+use App\Services\LotofacilStatisticsService;
 use InvalidArgumentException;
 use LogicException;
 
@@ -87,6 +88,31 @@ class WheelBetGenerator implements BetGeneratorInterface
 
         $generatedCount = 0;
         $uniqueBets = [];
+
+        // Lógica de Priorização Estatística (Atraso e Ciclo)
+        $service = app(LotofacilStatisticsService::class);
+        $cycleAnalysis = $service->getDecadesCycleAnalysis();
+        $delayAnalysis = collect($service->getCurrentDelayAnalysis())->keyBy('number');
+
+        $missingNumbers = $cycleAnalysis['missing_numbers'] ?? [];
+        $avgCycle = $cycleAnalysis['average_cycle_length'] ?: 4.7;
+        $currentContests = $cycleAnalysis['contests_in_current_cycle'] ?: 1;
+        $estimatedRemaining = max(1.0, $avgCycle - $currentContests);
+        $cycleBoost = count($missingNumbers) > 0 ? (count($missingNumbers) / $estimatedRemaining) : 0;
+
+        $scoredVariable = [];
+        foreach ($variableNumbers as $num) {
+            $score = 0;
+            $delay = $delayAnalysis->get($num)['delay'] ?? 1;
+            $score += $delay * 2;
+
+            if (in_array($num, $missingNumbers)) {
+                $score += ($cycleBoost * 3);
+            }
+            $scoredVariable[] = ['number' => $num, 'score' => $score];
+        }
+        usort($scoredVariable, fn ($a, $b) => $b['score'] <=> $a['score']);
+        $variableNumbers = array_column($scoredVariable, 'number');
 
         // Gerar combinações das dezenas variáveis
         $variableCombinations = $this->combinations($variableNumbers, $wheelSize);

@@ -18,6 +18,8 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
 
     public array $base_numbers = [];
 
+    public ?array $statisticalReport = null;
+
     public int $bet_size = 15;
 
     public int $planned_bets = 10;
@@ -148,12 +150,16 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
     }
 
     #[On('numbersSelected')]
-    public function setBaseNumbersFromResult(array $numbers): void
+    public function setBaseNumbersFromResult(array $numbers, bool $isStatistical = false): void
     {
         $validNumbers = array_values(array_unique(array_filter(array_map('intval', $numbers), fn ($n) => $n >= 1 && $n <= 25)));
         sort($validNumbers);
         $this->base_numbers = $validNumbers;
         $this->resetValidation('base_numbers');
+        
+        if (! $isStatistical) {
+            $this->statisticalReport = null;
+        }
     }
 
     public function loadLastResultNumbers(): void
@@ -171,6 +177,16 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
         $lastContestData = $service->getLastContestWithSum();
         $lastDrawn = $lastContestData['result']['drawn_numbers'] ?? [];
         $frequencies = $service->getNumberFrequencies()->toArray();
+        
+        $cycleAnalysis = $service->getDecadesCycleAnalysis();
+        $delayAnalysis = collect($service->getCurrentDelayAnalysis())->keyBy('number');
+
+        // Cálculo da Projeção de Ciclo
+        $missingNumbers = $cycleAnalysis['missing_numbers'] ?? [];
+        $avgCycle = $cycleAnalysis['average_cycle_length'] ?: 4.7;
+        $currentContests = $cycleAnalysis['contests_in_current_cycle'] ?: 1;
+        $estimatedRemaining = max(1.0, $avgCycle - $currentContests);
+        $cycleBoost = count($missingNumbers) > 0 ? (count($missingNumbers) / $estimatedRemaining) : 0;
 
         // 1. Repetidas
         $selectedRepeated = [];
@@ -201,6 +217,15 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
             $score = 0;
             $freq = $frequencies[$num] ?? 0;
             $score += $freq * 0.1;
+
+            // Bônus de Atraso
+            $delay = $delayAnalysis->get($num)['delay'] ?? 1;
+            $score += $delay * 2; 
+
+            // Bônus do ciclo
+            if (in_array($num, $missingNumbers)) {
+                $score += ($cycleBoost * 3); 
+            }
 
             $currentEvens = count(array_filter($selectedRepeated, fn ($n) => $n % 2 === 0));
             $currentOdds = count($selectedRepeated) - $currentEvens;
@@ -233,7 +258,26 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
         $selectedNew = array_slice(array_column($scoredCandidates, 'number'), 0, $neededNewCount);
 
         $generatedGroup = array_merge($selectedRepeated, $selectedNew);
-        $this->setBaseNumbersFromResult($generatedGroup);
+        $this->setBaseNumbersFromResult($generatedGroup, true);
+
+        sort($selectedRepeated);
+        sort($selectedNew);
+
+        $delayedNumbers = $delayAnalysis->sortByDesc('delay')->take(8)->pluck('number')->toArray();
+
+        $this->statisticalReport = [
+            'total_base' => count($generatedGroup),
+            'repetitions' => count($selectedRepeated),
+            'new_numbers' => count($selectedNew),
+            'repeated_list' => $selectedRepeated,
+            'new_list' => $selectedNew,
+            'cycle_numbers' => $missingNumbers,
+            'delayed_numbers' => $delayedNumbers,
+            'criteria' => [
+                'repeated' => "Foram selecionadas " . count($selectedRepeated) . " dezenas do concurso anterior priorizando a maior frequência geral histórica.",
+                'new' => "Foram selecionadas " . count($selectedNew) . " dezenas baseando-se na frequência geral, no maior atraso atual e na projeção de fechamento do ciclo (peso maior para as " . count($missingNumbers) . " dezenas faltantes), equilibradas com a proporção ideal de pares/ímpares e moldura/centro."
+            ]
+        ];
     }
 
     public function rules(): array
@@ -972,6 +1016,72 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                     Selecionar 20 aleatórias
                 </button>
             </div>
+
+            @if($statisticalReport)
+                <div class="mt-6 w-full rounded-2xl border border-emerald-100 bg-emerald-50/50 p-5">
+                    <h3 class="flex items-center gap-2 text-sm font-bold text-emerald-800 mb-3">
+                        <svg class="h-5 w-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                        Relatório da Geração Estatística
+                    </h3>
+                    <p class="text-sm text-slate-600 mb-4">
+                        A seleção das <strong>{{ $statisticalReport['total_base'] }} dezenas</strong> foi baseada nos seguintes critérios estatísticos:
+                    </p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="rounded-xl bg-white p-4 border border-emerald-100 shadow-sm">
+                            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between">
+                                <span>Repetidas do Último ({{ $statisticalReport['repetitions'] }})</span>
+                            </h4>
+                            <p class="text-xs text-slate-500 mb-3 leading-relaxed">
+                                {{ $statisticalReport['criteria']['repeated'] }}
+                            </p>
+                            <div class="flex flex-wrap gap-1.5">
+                                @foreach($statisticalReport['repeated_list'] as $num)
+                                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">{{ str_pad($num, 2, '0', STR_PAD_LEFT) }}</span>
+                                @endforeach
+                            </div>
+                        </div>
+                        
+                        <div class="rounded-xl bg-white p-4 border border-emerald-100 shadow-sm">
+                            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between">
+                                <span>Dezenas Inéditas ({{ $statisticalReport['new_numbers'] }})</span>
+                            </h4>
+                            <p class="text-xs text-slate-500 mb-3 leading-relaxed">
+                                {{ $statisticalReport['criteria']['new'] }}
+                            </p>
+                            <div class="flex flex-wrap gap-1.5">
+                                @foreach($statisticalReport['new_list'] as $num)
+                                    @php
+                                        $isCycle = in_array($num, $statisticalReport['cycle_numbers'] ?? []);
+                                        $isDelayed = in_array($num, $statisticalReport['delayed_numbers'] ?? []);
+                                        
+                                        $bgColor = 'bg-slate-100';
+                                        $textColor = 'text-slate-700';
+                                        
+                                        if ($isCycle && $isDelayed) {
+                                            $bgColor = 'bg-purple-100';
+                                            $textColor = 'text-purple-700';
+                                        } elseif ($isCycle) {
+                                            $bgColor = 'bg-amber-100';
+                                            $textColor = 'text-amber-700';
+                                        } elseif ($isDelayed) {
+                                            $bgColor = 'bg-rose-100';
+                                            $textColor = 'text-rose-700';
+                                        }
+                                    @endphp
+                                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full {{ $bgColor }} {{ $textColor }} text-xs font-semibold">{{ str_pad($num, 2, '0', STR_PAD_LEFT) }}</span>
+                                @endforeach
+                            </div>
+                            <div class="mt-4 flex flex-wrap gap-3 text-[10px] text-slate-500 font-medium border-t border-slate-100 pt-3">
+                                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-amber-100 block"></span> Ciclo de Fechamento</div>
+                                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-rose-100 block"></span> Maior Atraso</div>
+                                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-purple-100 block"></span> Ciclo & Atraso</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endif
         </section>
 
         <aside class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

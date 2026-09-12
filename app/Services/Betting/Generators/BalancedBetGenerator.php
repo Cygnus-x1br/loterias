@@ -193,6 +193,29 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $temperatures = app(LotofacilStatisticsService::class)->getNumberTemperatureClassification(20);
         }
 
+        // Lógica de Priorização Estatística (Atraso e Ciclo)
+        $service = app(LotofacilStatisticsService::class);
+        $cycleAnalysis = $service->getDecadesCycleAnalysis();
+        $delayAnalysis = collect($service->getCurrentDelayAnalysis())->keyBy('number');
+
+        $missingNumbers = $cycleAnalysis['missing_numbers'] ?? [];
+        $avgCycle = $cycleAnalysis['average_cycle_length'] ?: 4.7;
+        $currentContests = $cycleAnalysis['contests_in_current_cycle'] ?: 1;
+        $estimatedRemaining = max(1.0, $avgCycle - $currentContests);
+        $cycleBoost = count($missingNumbers) > 0 ? (count($missingNumbers) / $estimatedRemaining) : 0;
+
+        $numberScores = [];
+        foreach ($baseNumbers as $num) {
+            $score = 0;
+            $delay = $delayAnalysis->get($num)['delay'] ?? 1;
+            $score += $delay * 2;
+
+            if (in_array($num, $missingNumbers)) {
+                $score += ($cycleBoost * 3);
+            }
+            $numberScores[$num] = $score;
+        }
+
         $generatedCount = 0;
         $attempts = 0;
         $maxAttemptsPerBet = 2000;
@@ -227,9 +250,9 @@ class BalancedBetGenerator implements BetGeneratorInterface
                 $tolerance = floor($attempts / 500);
 
                 if ($targetRepetitions !== null && ! empty($lastDrawnNumbers)) {
-                    $currentBet = $this->generateStratifiedCombination($repeatedPool, $nonRepeatedPool, $targetRepetitions, $betSize, $usageCount);
+                    $currentBet = $this->generateStratifiedCombination($repeatedPool, $nonRepeatedPool, $targetRepetitions, $betSize, $usageCount, $numberScores);
                 } else {
-                    $currentBet = $this->generateRandomCombination($baseNumbers, $betSize, $usageCount);
+                    $currentBet = $this->generateRandomCombination($baseNumbers, $betSize, $usageCount, $numberScores);
                 }
 
                 sort($currentBet);
@@ -300,25 +323,31 @@ class BalancedBetGenerator implements BetGeneratorInterface
     }
 
     /**
-     * Gera uma combinação aleatória de dezenas priorizando as menos utilizadas.
+     * Gera uma combinação aleatória de dezenas priorizando as menos utilizadas e com maior score.
      *
      * @param  array<int>  $baseNumbers
      * @param  array<int, int>  $usageCount
+     * @param  array<int, float>  $numberScores
      * @return array<int>
      */
-    protected function generateRandomCombination(array $baseNumbers, int $betSize, array $usageCount = []): array
+    protected function generateRandomCombination(array $baseNumbers, int $betSize, array $usageCount = [], array $numberScores = []): array
     {
-        if (empty($usageCount)) {
+        if (empty($usageCount) && empty($numberScores)) {
             shuffle($baseNumbers);
 
             return array_slice($baseNumbers, 0, $betSize);
         }
 
-        // Pondera a seleção para favorecer dezenas menos usadas (objetivo: usar todo o fechamento)
+        // Pondera a seleção para favorecer dezenas menos usadas e com maior score
         $weightedPool = [];
         $maxUsage = max($usageCount) ?: 1;
         foreach ($baseNumbers as $num) {
-            $weight = max(1, $maxUsage - $usageCount[$num] + 1);
+            $weight = max(1, $maxUsage - ($usageCount[$num] ?? 0) + 1);
+
+            if (isset($numberScores[$num])) {
+                $weight += round($numberScores[$num]);
+            }
+
             for ($i = 0; $i < $weight; $i++) {
                 $weightedPool[] = $num;
             }
@@ -339,7 +368,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
     /**
      * Gera uma combinação respeitando cotas exatas de repetição.
      */
-    protected function generateStratifiedCombination(array $repeatedPool, array $nonRepeatedPool, int $targetRepetitions, int $betSize, array $usageCount): array
+    protected function generateStratifiedCombination(array $repeatedPool, array $nonRepeatedPool, int $targetRepetitions, int $betSize, array $usageCount, array $numberScores = []): array
     {
         $targetRepetitions = min($targetRepetitions, count($repeatedPool));
         $targetNonRepetitions = $betSize - $targetRepetitions;
@@ -350,8 +379,8 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $targetRepetitions = $betSize - $targetNonRepetitions;
         }
 
-        $repSelection = $this->generateRandomCombination($repeatedPool, $targetRepetitions, $usageCount);
-        $nonRepSelection = $this->generateRandomCombination($nonRepeatedPool, $targetNonRepetitions, $usageCount);
+        $repSelection = $this->generateRandomCombination($repeatedPool, $targetRepetitions, $usageCount, $numberScores);
+        $nonRepSelection = $this->generateRandomCombination($nonRepeatedPool, $targetNonRepetitions, $usageCount, $numberScores);
 
         return array_merge($repSelection, $nonRepSelection);
     }

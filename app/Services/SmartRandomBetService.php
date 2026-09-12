@@ -17,19 +17,19 @@ class SmartRandomBetService
     public function generateSmartBet(): array
     {
         $historicalHashes = $this->getHistoricalHashes();
-        
+
         $attempts = 0;
         $maxAttempts = 5000; // Proteção contra loop infinito
 
         while ($attempts < $maxAttempts) {
             $attempts++;
-            
+
             $numbers = range(1, 25);
             shuffle($numbers);
             $bet = array_slice($numbers, 0, 15);
             sort($bet);
 
-            if ($this->isValidPattern($bet) && !$this->isAlreadyDrawn($bet, $historicalHashes)) {
+            if ($this->isValidPattern($bet) && ! $this->isAlreadyDrawn($bet, $historicalHashes)) {
                 return $bet;
             }
         }
@@ -39,6 +39,7 @@ class SmartRandomBetService
         shuffle($numbers);
         $bet = array_slice($numbers, 0, 15);
         sort($bet);
+
         return $bet;
     }
 
@@ -46,7 +47,6 @@ class SmartRandomBetService
      * Gera uma combinação de N dezenas (16 a 25) equilibrada para formar um grupo-base de fechamento.
      * Mantém as proporções da Lotofácil adaptadas para o tamanho escolhido.
      *
-     * @param int $size
      * @return array<int>
      */
     public function generateSmartBase(int $size = 20): array
@@ -61,22 +61,22 @@ class SmartRandomBetService
         // Limites proporcionais ao tamanho escolhido (baseados nos 25 totais: 13 ímpares, 12 pares, 16 moldura, 9 miolo)
         // Por exemplo, para 20 dezenas, esperamos que corte um pouco de cada.
         $ratio = $size / 25;
-        
+
         $minEvens = (int) floor(12 * $ratio) - 1;
         $maxEvens = (int) ceil(12 * $ratio) + 1;
-        
+
         $minFrame = (int) floor(16 * $ratio) - 1;
         $maxFrame = (int) ceil(16 * $ratio) + 1;
 
         while ($attempts < $maxAttempts) {
             $attempts++;
-            
+
             $numbers = range(1, 25);
             shuffle($numbers);
             $base = array_slice($numbers, 0, $size);
             sort($base);
 
-            $evens = count(array_filter($base, fn($n) => $n % 2 === 0));
+            $evens = count(array_filter($base, fn ($n) => $n % 2 === 0));
             $frame = count(array_intersect($base, self::FRAME_NUMBERS));
 
             if ($evens >= $minEvens && $evens <= $maxEvens && $frame >= $minFrame && $frame <= $maxFrame) {
@@ -89,30 +89,30 @@ class SmartRandomBetService
         shuffle($numbers);
         $base = array_slice($numbers, 0, $size);
         sort($base);
+
         return $base;
     }
 
     /**
      * Gera múltiplas apostas inteligentes (usado para fechamentos se necessário).
      *
-     * @param int $quantity
      * @return array<array<int>>
      */
     public function generateMultipleSmartBets(int $quantity): array
     {
         $bets = [];
         $generatedHashes = [];
-        
+
         while (count($bets) < $quantity) {
             $bet = $this->generateSmartBet();
             $hash = implode('-', $bet);
-            
-            if (!isset($generatedHashes[$hash])) {
+
+            if (! isset($generatedHashes[$hash])) {
                 $generatedHashes[$hash] = true;
                 $bets[] = $bet;
             }
         }
-        
+
         return $bets;
     }
 
@@ -122,7 +122,7 @@ class SmartRandomBetService
     private function isValidPattern(array $bet): bool
     {
         // 1. Par/Ímpar (Ideal: 7 pares e 8 ímpares OU 8 pares e 7 ímpares, ou 6 pares e 9 ímpares, ou 9 pares e 6 ímpares)
-        $evens = count(array_filter($bet, fn($n) => $n % 2 === 0));
+        $evens = count(array_filter($bet, fn ($n) => $n % 2 === 0));
         if ($evens < 6 || $evens > 9) {
             return false;
         }
@@ -138,7 +138,7 @@ class SmartRandomBetService
         if ($frame < 8 || $frame > 11) {
             return false;
         }
-        
+
         // 4. Sequências (Evitar sequências muito longas, ex: 10 dezenas seguidas)
         $maxSequence = 1;
         $currentSequence = 1;
@@ -165,6 +165,7 @@ class SmartRandomBetService
     private function isAlreadyDrawn(array $bet, array $historicalHashes): bool
     {
         $hash = implode('-', $bet);
+
         return isset($historicalHashes[$hash]);
     }
 
@@ -177,7 +178,7 @@ class SmartRandomBetService
         return Cache::rememberForever('lotofacil_historical_hashes', function () {
             $results = HistoricalResult::all(['drawn_numbers']);
             $hashes = [];
-            
+
             foreach ($results as $result) {
                 $numbers = is_array($result->drawn_numbers) ? $result->drawn_numbers : json_decode((string) $result->drawn_numbers, true);
                 if (is_array($numbers)) {
@@ -187,7 +188,7 @@ class SmartRandomBetService
                     $hashes[$hash] = true;
                 }
             }
-            
+
             return $hashes;
         });
     }
