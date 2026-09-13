@@ -113,6 +113,11 @@ new class extends Component {
     {
         $user = Auth::user();
 
+        if (empty($user->share_code)) {
+            $user->share_code = User::generateUniqueShareCode();
+            $user->saveQuietly();
+        }
+
         $pendingRequests = Connection::with('user')
             ->where('friend_id', $user->id)
             ->where('status', 'pending')
