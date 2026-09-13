@@ -69,7 +69,7 @@ new class extends Component
 
                     <x-slot name="content">
                         <x-dropdown-link :href="route('profile')" wire:navigate>
-                            {{ __('Profile') }}
+                            {{ __('Meu Perfil & Bolões') }}
                         </x-dropdown-link>
 
                         <!-- Authentication -->
@@ -127,7 +127,7 @@ new class extends Component
 
             <div class="mt-3 space-y-1">
                 <x-responsive-nav-link :href="route('profile')" wire:navigate>
-                    {{ __('Profile') }}
+                    {{ __('Meu Perfil & Bolões') }}
                 </x-responsive-nav-link>
 
                 <!-- Authentication -->

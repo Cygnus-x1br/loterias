@@ -66,6 +66,11 @@ new #[Layout('layouts.app', ['title' => 'Gerenciamento de Conta'])] class extend
         </div>
     </div>
 
+    {{-- Seção: Rede de Bolão (Conexões) --}}
+    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <livewire:profile.manage-connections />
+    </div>
+
     {{-- Seção: Excluir Conta --}}
     <div class="rounded-2xl border border-rose-100 bg-white p-6 shadow-sm">
         <div class="max-w-2xl">

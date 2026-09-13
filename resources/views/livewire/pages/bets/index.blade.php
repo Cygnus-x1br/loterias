@@ -220,7 +220,12 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
     protected function filteredBetsQuery()
     {
         return Bet::query()
-            ->where('user_id', Auth::id())
+            ->where(function ($query) {
+                $query->where('user_id', Auth::id())
+                      ->orWhereHas('sharedWith', function ($q) {
+                          $q->where('users.id', Auth::id());
+                      });
+            })
             ->when(
                 $this->search !== '',
                 function ($query): void {
@@ -682,57 +687,61 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
 
                                 <td class="px-4 py-3 text-right whitespace-nowrap">
                                     <div class="flex items-center justify-end gap-1.5">
-                                        {{-- Botão Marcar Apostado --}}
-                                        <button
-                                            type="button"
-                                            wire:click="openMarkAsPlacedModal({{ $bet->id }})"
-                                            class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
-                                            title="{{ $bet->status === 'placed' ? 'Editar dados do concurso' : 'Marcar como Apostada' }}"
-                                        >
-                                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                            </svg>
-                                            {{ $bet->status === 'placed' || $bet->status === 'checked' ? 'Concurso' : 'Apostar' }}
-                                        </button>
-
-                                        {{-- Botão Conferir --}}
-                                        @if ($bet->contest_number)
+                                        @if ($bet->user_id === Auth::id())
+                                            {{-- Botão Marcar Apostado --}}
                                             <button
                                                 type="button"
-                                                wire:click="checkBet({{ $bet->id }})"
-                                                wire:loading.attr="disabled"
-                                                class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-                                                title="Conferir aposta contra o resultado do sorteio"
+                                                wire:click="openMarkAsPlacedModal({{ $bet->id }})"
+                                                class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                                                title="{{ $bet->status === 'placed' ? 'Editar dados do concurso' : 'Marcar como Apostada' }}"
                                             >
                                                 <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                                                 </svg>
-                                                Conferir
+                                                {{ $bet->status === 'placed' || $bet->status === 'checked' ? 'Concurso' : 'Apostar' }}
                                             </button>
-                                        @endif
 
-                                        <button
-                                            type="button"
-                                            wire:click="delete({{ $bet->id }})"
-                                            wire:confirm="Tem certeza que deseja excluir esta aposta?"
-                                            wire:loading.attr="disabled"
-                                            class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                            <svg
-                                                class="h-3.5 w-3.5"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                viewBox="0 0 24 24"
+                                            {{-- Botão Conferir --}}
+                                            @if ($bet->contest_number)
+                                                <button
+                                                    type="button"
+                                                    wire:click="checkBet({{ $bet->id }})"
+                                                    wire:loading.attr="disabled"
+                                                    class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                                                    title="Conferir aposta contra o resultado do sorteio"
+                                                >
+                                                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    Conferir
+                                                </button>
+                                            @endif
+
+                                            <button
+                                                type="button"
+                                                wire:click="delete({{ $bet->id }})"
+                                                wire:confirm="Tem certeza que deseja excluir esta aposta?"
+                                                wire:loading.attr="disabled"
+                                                class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
                                             >
-                                                <path
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                    stroke-width="2"
-                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
-                                                />
-                                            </svg>
-                                            Excluir
-                                        </button>
+                                                <svg
+                                                    class="h-3.5 w-3.5"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    viewBox="0 0 24 24"
+                                                >
+                                                    <path
+                                                        stroke-linecap="round"
+                                                        stroke-linejoin="round"
+                                                        stroke-width="2"
+                                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
+                                                    />
+                                                </svg>
+                                                Excluir
+                                            </button>
+                                        @else
+                                            <span class="text-xs text-slate-400 italic">Bolão (somente leitura)</span>
+                                        @endif
                                     </div>
                                 </td>
                             </tr>
@@ -869,34 +878,38 @@ new #[Layout('layouts.app', ['title' => 'Apostas'])] class extends Component
                             </div>
 
                             <div class="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    wire:click="openMarkAsPlacedModal({{ $bet->id }})"
-                                    class="rounded-lg px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
-                                >
-                                    {{ $bet->status === 'placed' || $bet->status === 'checked' ? 'Concurso' : 'Apostar' }}
-                                </button>
-
-                                @if ($bet->contest_number)
+                                @if ($bet->user_id === Auth::id())
                                     <button
                                         type="button"
-                                        wire:click="checkBet({{ $bet->id }})"
-                                        wire:loading.attr="disabled"
-                                        class="rounded-lg px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                                        wire:click="openMarkAsPlacedModal({{ $bet->id }})"
+                                        class="rounded-lg px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
                                     >
-                                        Conferir
+                                        {{ $bet->status === 'placed' || $bet->status === 'checked' ? 'Concurso' : 'Apostar' }}
                                     </button>
-                                @endif
 
-                                <button
-                                    type="button"
-                                    wire:click="delete({{ $bet->id }})"
-                                    wire:confirm="Tem certeza que deseja excluir esta aposta?"
-                                    wire:loading.attr="disabled"
-                                    class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                    Excluir
-                                </button>
+                                    @if ($bet->contest_number)
+                                        <button
+                                            type="button"
+                                            wire:click="checkBet({{ $bet->id }})"
+                                            wire:loading.attr="disabled"
+                                            class="rounded-lg px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                                        >
+                                            Conferir
+                                        </button>
+                                    @endif
+
+                                    <button
+                                        type="button"
+                                        wire:click="delete({{ $bet->id }})"
+                                        wire:confirm="Tem certeza que deseja excluir esta aposta?"
+                                        wire:loading.attr="disabled"
+                                        class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        Excluir
+                                    </button>
+                                @else
+                                    <span class="text-xs text-slate-400 italic">Bolão (somente leitura)</span>
+                                @endif
                             </div>
                         </div>
                     </article>

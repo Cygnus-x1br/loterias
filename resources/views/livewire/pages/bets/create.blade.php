@@ -25,6 +25,10 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
 
     public bool $processing = false;
 
+    public bool $is_pool = false;
+
+    public array $pool_participants = [];
+
     public function rules(): array
     {
         return [
@@ -187,6 +191,10 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
                 'notes' => $validated['notes'] ?: null,
             ]);
 
+            if ($this->is_pool && !empty($this->pool_participants)) {
+                $bet->sharedWith()->sync($this->pool_participants);
+            }
+
             session()->flash(
                 'success',
                 "Aposta {$bet->id} criada com sucesso."
@@ -196,6 +204,13 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
         } finally {
             $this->processing = false;
         }
+    }
+
+    public function with(): array
+    {
+        return [
+            'friends' => Auth::user()->friends(),
+        ];
     }
 };
 ?>
@@ -561,6 +576,54 @@ new #[Layout('layouts.app', ['title' => 'Nova aposta'])] class extends Component
                     @enderror
                 </div>
             @endif
+
+            {{-- BOLÃO --}}
+            <div class="md:col-span-2 space-y-4 rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-bold text-indigo-800">
+                            Compartilhar como Bolão
+                        </h3>
+                        <p class="text-xs text-indigo-600/70">
+                            Permita que seus amigos visualizem esta aposta.
+                        </p>
+                    </div>
+                    <label class="relative inline-flex cursor-pointer items-center">
+                        <input type="checkbox" wire:model.live="is_pool" class="peer sr-only">
+                        <div class="peer h-6 w-11 rounded-full bg-slate-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-indigo-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:border-gray-600 dark:bg-gray-700 dark:peer-focus:ring-indigo-800"></div>
+                    </label>
+                </div>
+
+                @if ($is_pool)
+                    <div class="pt-3 border-t border-indigo-100/60">
+                        <label class="block text-sm font-semibold text-slate-700">
+                            Participantes do Bolão
+                        </label>
+                        @if ($friends->isEmpty())
+                            <p class="text-xs text-slate-500 mt-2">
+                                Você não possui amigos adicionados para compartilhar. <a href="{{ route('profile') }}" class="text-indigo-600 hover:underline">Adicione amigos aqui</a>.
+                            </p>
+                        @else
+                            <div class="mt-2 space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                @foreach ($friends as $friend)
+                                    <label class="flex items-center gap-3 p-2 rounded-lg hover:bg-white transition cursor-pointer border border-transparent hover:border-indigo-100">
+                                        <input type="checkbox" wire:model="pool_participants" value="{{ $friend->id }}" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                                        <div class="flex flex-col">
+                                            <span class="text-sm font-medium text-slate-800">{{ $friend->name }}</span>
+                                            <span class="text-[10px] text-slate-500">ID: {{ $friend->share_code }}</span>
+                                        </div>
+                                    </label>
+                                @endforeach
+                            </div>
+                            @error('pool_participants')
+                                <p class="mt-2 text-sm font-medium text-rose-600">
+                                    {{ $message }}
+                                </p>
+                            @enderror
+                        @endif
+                    </div>
+                @endif
+            </div>
 
             <div class="md:col-span-2">
                 <label

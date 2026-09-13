@@ -11,8 +11,11 @@ new #[Layout('layouts.app', ['title' => 'Impressão de Jogos'])] class extends C
 
     public function mount(Closing $closing): void
     {
-        // Garante que apenas o proprietário pode ver o fechamento para impressão
-        if ($closing->user_id !== Auth::id()) {
+        // Garante que o proprietário ou um participante compartilhado pode ver o fechamento para impressão
+        $isOwner = $closing->user_id === Auth::id();
+        $isShared = $closing->sharedWith()->where('user_id', Auth::id())->exists();
+
+        if (!$isOwner && !$isShared) {
             abort(403);
         }
 

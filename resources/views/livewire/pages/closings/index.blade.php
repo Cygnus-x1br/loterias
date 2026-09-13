@@ -17,6 +17,8 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
 
     public string $method = '';
 
+    public string $view_mode = 'my_closings';
+
     public bool $confirmingClosingDeletion = false;
 
     public ?int $closingToDelete = null;
@@ -37,6 +39,12 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
 
     public function updatedMethod(): void
     {
+        $this->resetPage();
+    }
+
+    public function setViewMode(string $mode): void
+    {
+        $this->view_mode = $mode;
         $this->resetPage();
     }
 
@@ -176,8 +184,21 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
      */
     public function with(): array
     {
-        $closings = Closing::query()
-            ->where('user_id', Auth::id())
+        $query = Closing::query();
+
+        if ($this->view_mode === 'shared_with_me') {
+            $query->whereHas('sharedWith', function ($q) {
+                $q->where('user_id', Auth::id());
+            });
+        } elseif ($this->view_mode === 'my_pools') {
+            $query->where('user_id', Auth::id())
+                  ->has('sharedWith');
+        } else {
+            $query->where('user_id', Auth::id());
+        }
+
+        $closings = $query
+            ->with('sharedWith')
             ->when(
                 trim($this->search) !== '',
                 function ($query): void {
@@ -363,6 +384,36 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
         </div>
     @endif
 
+    {{-- Abas de Navegação --}}
+    <div class="border-b border-gray-200">
+        <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+            <button wire:click="setViewMode('my_closings')"
+                @class([
+                    'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium',
+                    'border-indigo-500 text-indigo-600' => $view_mode === 'my_closings',
+                    'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700' => $view_mode !== 'my_closings',
+                ])>
+                Meus Fechamentos
+            </button>
+            <button wire:click="setViewMode('my_pools')"
+                @class([
+                    'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium',
+                    'border-indigo-500 text-indigo-600' => $view_mode === 'my_pools',
+                    'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700' => $view_mode !== 'my_pools',
+                ])>
+                Meus Bolões
+            </button>
+            <button wire:click="setViewMode('shared_with_me')"
+                @class([
+                    'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium',
+                    'border-indigo-500 text-indigo-600' => $view_mode === 'shared_with_me',
+                    'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700' => $view_mode !== 'shared_with_me',
+                ])>
+                Compartilhados Comigo
+            </button>
+        </nav>
+    </div>
+
     <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
             <div class="flex-1">
@@ -514,8 +565,16 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                         {{ $closing->name }}
                                     </div>
 
-                                    <div class="mt-1 text-xs text-slate-500">
-                                        #{{ $closing->id }}
+                                    <div class="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                                        <span>#{{ $closing->id }}</span>
+                                        @if ($closing->sharedWith->isNotEmpty())
+                                            <span class="inline-flex items-center gap-1 rounded-full bg-purple-50 border border-purple-200 px-2 py-0.5 text-[10px] font-bold text-purple-700">
+                                                <svg class="h-3 w-3 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                                </svg>
+                                                Bolão ({{ $closing->sharedWith->count() }})
+                                            </span>
+                                        @endif
                                     </div>
                                 </td>
 
@@ -559,40 +618,44 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
 
                                 <td class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
                                     <div class="flex flex-col items-end gap-1.5">
-                                        @if ($this->canGenerate($closing))
-                                            <button
-                                                type="button"
-                                                wire:click="generate({{ $closing->id }})"
-                                                wire:confirm="Tem certeza que deseja gerar as apostas deste fechamento?"
-                                                wire:loading.attr="disabled"
-                                                wire:target="generate({{ $closing->id }})"
-                                                class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                <svg
-                                                    class="h-3.5 w-3.5"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    viewBox="0 0 24 24"
-                                                >
-                                                    <path
-                                                        stroke-linecap="round"
-                                                        stroke-linejoin="round"
-                                                        stroke-width="2"
-                                                        d="M13 10V3L4 14h7v7l9-11h-7z"
-                                                    />
-                                                </svg>
-
-                                                Gerar apostas
-                                            </button>
-                                        @endif
-
-                                        @if ($closing->status === 'draft' || $closing->status === 'failed')
+                                        @if($view_mode === 'shared_with_me')
                                             <a
-                                                href="{{ route('closings.edit', $closing) }}"
-                                                class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-amber-700 transition hover:bg-amber-50"
+                                                href="{{ route('closings.show', $closing) }}"
+                                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
+                                                title="Ver detalhes"
                                             >
                                                 <svg
-                                                    class="h-3.5 w-3.5"
+                                                    class="h-4 w-4"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    viewBox="0 0 24 24"
+                                                >
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
+                                                Visualizar
+                                            </a>
+                                        @else
+                                            @if ($this->canGenerate($closing))
+                                                <button
+                                                    type="button"
+                                                    wire:click="generate({{ $closing->id }})"
+                                                    class="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 hover:text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1"
+                                                    title="Gerar Apostas"
+                                                >
+                                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                                    </svg>
+                                                    Gerar
+                                                </button>
+                                            @endif
+                                            <a
+                                                href="{{ route('closings.show', $closing) }}"
+                                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
+                                                title="Gerenciar Fechamento"
+                                            >
+                                                <svg
+                                                    class="h-4 w-4"
                                                     fill="none"
                                                     stroke="currentColor"
                                                     viewBox="0 0 24 24"
@@ -601,63 +664,41 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
                                                         stroke-linecap="round"
                                                         stroke-linejoin="round"
                                                         stroke-width="2"
-                                                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                                                    />
+                                                    <path
+                                                        stroke-linecap="round"
+                                                        stroke-linejoin="round"
+                                                        stroke-width="2"
+                                                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                                                     />
                                                 </svg>
-
-                                                Editar
+                                                Gerenciar
                                             </a>
+
+                                            @if ($closing->user_id === Auth::id())
+                                                <button
+                                                    type="button"
+                                                    wire:click="confirmClosingDeletion({{ $closing->id }})"
+                                                    class="inline-flex items-center gap-1.5 rounded-lg border border-transparent p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-1"
+                                                    title="Excluir"
+                                                >
+                                                    <svg
+                                                        class="h-4 w-4"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        viewBox="0 0 24 24"
+                                                    >
+                                                        <path
+                                                            stroke-linecap="round"
+                                                            stroke-linejoin="round"
+                                                            stroke-width="2"
+                                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                                        />
+                                                    </svg>
+                                                </button>
+                                            @endif
                                         @endif
-
-                                        <a
-                                            href="{{ route('closings.show', $closing) }}"
-                                            class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
-                                        >
-                                            <svg
-                                                class="h-3.5 w-3.5"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                viewBox="0 0 24 24"
-                                            >
-                                                <path
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                    stroke-width="2"
-                                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                                                />
-
-                                                <path
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                    stroke-width="2"
-                                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                                                />
-                                            </svg>
-
-                                            Visualizar
-                                        </a>
-
-                                        <button
-                                            type="button"
-                                            wire:click="confirmClosingDeletion({{ $closing->id }})"
-                                            class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
-                                        >
-                                            <svg
-                                                class="h-3.5 w-3.5"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                viewBox="0 0 24 24"
-                                            >
-                                                <path
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                    stroke-width="2"
-                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h10"
-                                                />
-                                            </svg>
-
-                                            Excluir
-                                        </button>
                                     </div>
                                 </td>
                             </tr>

@@ -81,9 +81,26 @@
                         Apostas
                     </a>
 
-                    <a href="{{  route('closings.index') }}" class="sidebar-link">
+                    <a
+                        href="{{ route('closings.index') }}"
+                        @class([
+                            'sidebar-link',
+                            'bg-indigo-50 !text-indigo-700 font-semibold' => request()->routeIs('closings.index'),
+                        ])
+                    >
                         <span>◈</span>
                         Fechamentos
+                    </a>
+
+                    <a
+                        href="{{ route('closings.consolidated_audit') }}"
+                        @class([
+                            'sidebar-link text-xs pl-7',
+                            '!text-indigo-700 font-semibold' => request()->routeIs('closings.consolidated_audit'),
+                        ])
+                    >
+                        <span>↳</span>
+                        Auditoria consolidada
                     </a>
 
                     <a

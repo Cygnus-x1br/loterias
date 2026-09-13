@@ -33,10 +33,52 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     public ?array $checkedContestInfo = null;
     public ?array $baseNumbersCoverage = null;
 
+    // Modal de Compartilhamento / Bolão
+    public bool $showShareModal = false;
+    public bool $is_pool = false;
+    public array $pool_participants = [];
+
+    public function openShareModal(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $this->pool_participants = $this->closing->sharedWith()->pluck('users.id')->map(fn ($id) => (int) $id)->toArray();
+        $this->is_pool = ! empty($this->pool_participants);
+        $this->showShareModal = true;
+    }
+
+    public function closeShareModal(): void
+    {
+        $this->showShareModal = false;
+    }
+
+    public function saveShare(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        if ($this->is_pool) {
+            $this->closing->sharedWith()->sync($this->pool_participants);
+        } else {
+            $this->closing->sharedWith()->detach();
+            $this->pool_participants = [];
+        }
+
+        $this->closing->refresh();
+        $this->showShareModal = false;
+        $this->generationSuccess = 'Configurações de compartilhamento (bolão) atualizadas com sucesso!';
+    }
+
     public function mount(Closing $closing): void
     {
-        // Garante que apenas o proprietário pode ver o fechamento
-        if ($closing->user_id !== Auth::id()) {
+        // Garante que o proprietário ou um participante compartilhado pode ver o fechamento
+        $isOwner = $closing->user_id === Auth::id();
+        $isShared = $closing->sharedWith()->where('user_id', Auth::id())->exists();
+
+        if (!$isOwner && !$isShared) {
             abort(403);
         }
 
@@ -79,6 +121,10 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
 
     public function markAsPlaced(): void
     {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode marcá-lo como apostado.');
+        }
+
         $this->validate([
             'placedContestNumber' => ['required', 'integer', 'min:1'],
             'placedDrawDate' => ['nullable', 'date'],
@@ -114,6 +160,10 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
      */
     public function checkResults(): void
     {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode conferir resultados.');
+        }
+
         $this->checkError = null;
         $this->evaluateResults(true);
     }
@@ -266,6 +316,10 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
      */
     public function generateBets(): void
     {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode gerar apostas.');
+        }
+
         $this->generationError = null;
         $this->generationSuccess = null;
 
@@ -371,8 +425,13 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
             return $bet;
         });
 
+        $friends = Auth::user()->friends();
+        $sharedUsers = $this->closing->sharedWith()->get();
+
         return [
             'bets' => $bets,
+            'friends' => $friends,
+            'sharedUsers' => $sharedUsers,
         ];
     }
 };
@@ -432,6 +491,15 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                     Data do Sorteio: {{ $closing->draw_date->format('d/m/Y') }}
                                 </span>
                             @endif
+
+                            @if ($sharedUsers->isNotEmpty())
+                                <span class="inline-flex items-center gap-1.5 rounded-full bg-purple-50 border border-purple-200 px-2.5 py-1 text-xs font-semibold text-purple-700" title="Compartilhado com: {{ $sharedUsers->pluck('name')->join(', ') }}">
+                                    <svg class="h-3.5 w-3.5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                    </svg>
+                                    Bolão: {{ $sharedUsers->count() }} participante{{ $sharedUsers->count() > 1 ? 's' : '' }}
+                                </span>
+                            @endif
                         </div>
 
                         @php
@@ -450,6 +518,20 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                     </div>
 
                     <div class="flex items-center gap-2">
+                        @if ($closing->user_id === Auth::id())
+                            <button
+                                type="button"
+                                wire:click="openShareModal"
+                                class="inline-flex items-center justify-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-2.5 text-sm font-semibold text-purple-700 shadow-sm transition hover:bg-purple-100"
+                                title="Gerenciar participantes do bolão"
+                            >
+                                <svg class="h-4 w-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                                {{ $sharedUsers->isNotEmpty() ? 'Gerenciar Bolão' : 'Compartilhar (Bolão)' }}
+                            </button>
+                        @endif
+
                         @if ($closing->status === 'draft' || $closing->status === 'failed')
                             <a
                                 href="{{ route('closings.edit', $closing) }}"
@@ -521,15 +603,17 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                     <div class="flex flex-wrap items-center gap-2.5">
                         {{-- Botão Imprimir Jogos --}}
                         @if ($closing->bets()->count() > 0)
-                            <a
-                                href="{{ route('closings.optimize', $closing) }}"
-                                class="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100 hover:text-indigo-800"
-                            >
-                                <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                                </svg>
-                                Otimizar Fechamento
-                            </a>
+                            @if ($closing->user_id === Auth::id())
+                                <a
+                                    href="{{ route('closings.optimize', $closing) }}"
+                                    class="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100 hover:text-indigo-800"
+                                >
+                                    <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                                    </svg>
+                                    Otimizar Fechamento
+                                </a>
+                            @endif
 
                             <a
                                 href="{{ route('closings.print', $closing) }}"
@@ -543,7 +627,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         @endif
 
                         {{-- Botão Marcar como Apostado --}}
-                        @if (in_array($closing->status, ['completed', 'placed', 'checked']))
+                        @if (in_array($closing->status, ['completed', 'placed', 'checked']) && $closing->user_id === Auth::id())
                             <button
                                 type="button"
                                 wire:click="openMarkAsPlacedModal"
@@ -557,7 +641,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         @endif
 
                         {{-- Botão Conferir Resultado --}}
-                        @if (in_array($closing->status, ['placed', 'checked']))
+                        @if (in_array($closing->status, ['placed', 'checked']) && $closing->user_id === Auth::id())
                             <button
                                 type="button"
                                 wire:click="checkResults"
@@ -574,7 +658,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         @endif
 
                         {{-- Botão Gerar Apostas --}}
-                        @if ($closing->status === 'draft' || $closing->status === 'failed')
+                        @if (($closing->status === 'draft' || $closing->status === 'failed') && $closing->user_id === Auth::id())
                             @if (! $this->isMethodImplemented())
                                 <span class="text-xs font-semibold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
                                     Método não implementado
@@ -1182,6 +1266,117 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         class="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-sm"
                     >
                         Confirmar Apostado
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Modal Gerenciar Bolão / Compartilhamento --}}
+    @if ($showShareModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div class="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-5">
+                <div class="flex items-start justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-600">
+                            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900">
+                                Compartilhar como Bolão
+                            </h3>
+                            <p class="text-xs text-slate-500">
+                                Divida este fechamento com seus amigos conectados.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        wire:click="closeShareModal"
+                        class="text-slate-400 hover:text-slate-600 rounded-lg p-1"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    {{-- Toggle Bolão --}}
+                    <div class="flex items-center justify-between rounded-xl bg-purple-50/60 border border-purple-100 p-4">
+                        <div>
+                            <label class="text-sm font-bold text-slate-800">
+                                Habilitar Bolão
+                            </label>
+                            <p class="text-xs text-slate-500">
+                                Se ativado, os amigos selecionados poderão ver todos os jogos gerados deste fechamento.
+                            </p>
+                        </div>
+                        <label class="relative inline-flex cursor-pointer items-center">
+                            <input type="checkbox" wire:model.live="is_pool" class="peer sr-only">
+                            <div class="peer h-6 w-11 rounded-full bg-slate-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-purple-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300"></div>
+                        </label>
+                    </div>
+
+                    @if ($is_pool)
+                        <div class="pt-2">
+                            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                                Selecione os Participantes
+                            </label>
+
+                            @if ($friends->isEmpty())
+                                <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
+                                    <p class="text-xs text-slate-500">
+                                        Você ainda não possui amigos aceitos na sua rede de bolão.
+                                    </p>
+                                    <a href="{{ route('profile') }}" class="mt-2 inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline">
+                                        Conectar amigos no seu Perfil →
+                                    </a>
+                                </div>
+                            @else
+                                <div class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                    @foreach ($friends as $friend)
+                                        <label class="flex items-center justify-between p-3 rounded-xl border border-slate-200 hover:border-purple-200 hover:bg-purple-50/30 transition cursor-pointer">
+                                            <div class="flex items-center gap-3">
+                                                <input
+                                                    type="checkbox"
+                                                    wire:model="pool_participants"
+                                                    value="{{ $friend->id }}"
+                                                    class="rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                                                >
+                                                <div>
+                                                    <span class="text-sm font-semibold text-slate-800 block">{{ $friend->name }}</span>
+                                                    <span class="text-[10px] font-mono text-slate-400">ID: {{ $friend->share_code }}</span>
+                                                </div>
+                                            </div>
+                                            @if(in_array($friend->id, $pool_participants))
+                                                <span class="text-[11px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">Participante</span>
+                                            @endif
+                                        </label>
+                                    @endforeach
+                                </div>
+                            @endif
+                        </div>
+                    @endif
+                </div>
+
+                <div class="flex items-center justify-between pt-3 border-t border-slate-100">
+                    <button
+                        type="button"
+                        wire:click="closeShareModal"
+                        class="px-4 py-2 text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-100"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        wire:click="saveShare"
+                        class="inline-flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-md shadow-purple-600/20 transition"
+                    >
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        Salvar Participantes
                     </button>
                 </div>
             </div>

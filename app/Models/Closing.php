@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Closing extends Model
@@ -58,5 +59,10 @@ class Closing extends Model
     public function bets(): HasMany
     {
         return $this->hasMany(Bet::class);
+    }
+
+    public function sharedWith(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'closing_user');
     }
 }

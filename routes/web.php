@@ -43,6 +43,8 @@ Route::middleware('auth')
             ->name('optimize.index');
         Volt::route('/cobertura-combinatoria', 'pages.closings.educational')
             ->name('educational');
+        Volt::route('/auditoria-consolidada', 'pages.closings.consolidated-audit')
+            ->name('consolidated_audit');
         Volt::route('/', 'pages.closings.index')
             ->name('index');
         Volt::route('/novo', 'pages.closings.create')

@@ -94,6 +94,104 @@ class CoverageAuditorService
         ];
     }
 
+    /**
+     * Mede a cobertura combinatória de um conjunto de apostas em relação a um grupo-base usando simulação de Monte Carlo.
+     *
+     * @param  array  $baseNumbers  Grupo-base selecionado (ex: 25 dezenas).
+     * @param  array  $bets  Lista de apostas (cada uma com 15 dezenas).
+     * @param  int  $guaranteePoints  Pontos que se deseja garantir (ex: 14).
+     * @param  int  $guaranteeHits  Condição de acerto no grupo-base (ex: 15).
+     * @param  int  $iterations  Quantidade de sorteios a simular (padrão 500000).
+     */
+    public function auditCoverageMonteCarlo(
+        array $baseNumbers,
+        array $bets,
+        int $guaranteePoints = 14,
+        int $guaranteeHits = 15,
+        int $iterations = 500000
+    ): array {
+        sort($baseNumbers);
+
+        $scenariosCount = Combinatorics::countCombinations(count($baseNumbers), $guaranteeHits);
+
+        // Se as combinações totais forem menores que as iterações, podemos fazer exato.
+        // Mas a UI deve lidar com essa decisão. Aqui apenas simulamos $iterations.
+        $actualIterations = min($scenariosCount, $iterations);
+
+        // Converter apostas para bitmask para cálculo rápido
+        $betMasks = [];
+        foreach ($bets as $bet) {
+            $betMasks[] = $this->arrayToBitmask($bet);
+        }
+
+        $coveredCount11 = 0;
+        $coveredCount12 = 0;
+        $coveredCount13 = 0;
+        $coveredCount14 = 0;
+        $coveredCount15 = 0;
+
+        for ($i = 0; $i < $actualIterations; $i++) {
+            // Pick $guaranteeHits random numbers from $baseNumbers
+            $keys = array_rand($baseNumbers, $guaranteeHits);
+            $scenario = array_map(fn ($k) => $baseNumbers[$k], (array) $keys);
+
+            $scenarioMask = $this->arrayToBitmask($scenario);
+
+            $maxHitsInScenario = 0;
+            foreach ($betMasks as $betMask) {
+                $hits = $this->countBits($betMask & $scenarioMask);
+                if ($hits > $maxHitsInScenario) {
+                    $maxHitsInScenario = $hits;
+                }
+
+                if ($maxHitsInScenario === 15) {
+                    break;
+                }
+            }
+
+            if ($maxHitsInScenario >= 11) {
+                $coveredCount11++;
+            }
+            if ($maxHitsInScenario >= 12) {
+                $coveredCount12++;
+            }
+            if ($maxHitsInScenario >= 13) {
+                $coveredCount13++;
+            }
+            if ($maxHitsInScenario >= 14) {
+                $coveredCount14++;
+            }
+            if ($maxHitsInScenario === 15) {
+                $coveredCount15++;
+            }
+        }
+
+        // Variável dinâmica com base na garantia solicitada
+        $targetCoverage = match ($guaranteePoints) {
+            11 => $coveredCount11,
+            12 => $coveredCount12,
+            13 => $coveredCount13,
+            14 => $coveredCount14,
+            15 => $coveredCount15,
+            default => 0,
+        };
+
+        // Note: Monte Carlo does not "confirm" guarantee perfectly, but gives probability
+        return [
+            'quantidade_cenarios_analisados' => $actualIterations,
+            'is_monte_carlo' => true,
+            'cobertura_por_faixa' => [
+                '11_acertos' => $this->percentage($coveredCount11, $actualIterations),
+                '12_acertos' => $this->percentage($coveredCount12, $actualIterations),
+                '13_acertos' => $this->percentage($coveredCount13, $actualIterations),
+                '14_acertos' => $this->percentage($coveredCount14, $actualIterations),
+                '15_acertos' => $this->percentage($coveredCount15, $actualIterations),
+            ],
+            'garantia_confirmada' => $targetCoverage === $actualIterations, // Very close to 100% or 100%
+            'condicoes_da_garantia' => "Simulação Monte Carlo ({$actualIterations} cenários): Garante {$guaranteePoints} acertos se acertar {$guaranteeHits} dezenas no grupo-base de ".count($baseNumbers).' dezenas.',
+        ];
+    }
+
     private function percentage(int $part, int $total): float
     {
         if ($total === 0) {

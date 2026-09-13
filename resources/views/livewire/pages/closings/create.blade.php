@@ -23,6 +23,10 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
     public int $planned_bets = 10;
 
+    public bool $is_pool = false;
+
+    public array $pool_participants = [];
+
     public function mount(): void
     {
         $numbersQuery = request()->query('numbers');
@@ -259,6 +263,12 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 'string',
                 'max:2000',
             ],
+
+            'is_pool' => ['boolean'],
+
+            'pool_participants' => ['array'],
+
+            'pool_participants.*' => ['integer', 'exists:users,id'],
         ];
 
         // Regras condicionais para o método 'balanced'
@@ -520,6 +530,8 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         $this->wheel_size = null;
         $this->guarantee_hits = null; // Limpar também os novos campos
         $this->guarantee_points = null; // Limpar também os novos campos
+        $this->is_pool = false;
+        $this->pool_participants = [];
 
         $this->resetValidation('base_numbers');
         $this->resetValidation('fixed_numbers');
@@ -528,6 +540,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         $this->adjustPlannedBets();
         $this->resetValidation('guarantee_hits'); // Resetar validação
         $this->resetValidation('guarantee_points'); // Resetar validação
+        $this->resetValidation('pool_participants');
     }
 
     #[Computed]
@@ -779,6 +792,10 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                     : null,
             ]);
 
+            if ($this->is_pool && !empty($this->pool_participants)) {
+                $closing->sharedWith()->sync($this->pool_participants);
+            }
+
             session()->flash(
                 'success',
                 "Fechamento {$closing->id} criado como rascunho."
@@ -799,6 +816,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         return [
             'numberTemperatures' => $temperatures,
             'lastContestStats' => $lastContestStats,
+            'friends' => Auth::user()->friends(),
         ];
     }
 };
@@ -1974,6 +1992,54 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                             {{ $message }}
                         </p>
                     @enderror
+                </div>
+
+                {{-- BOLÃO --}}
+                <div class="space-y-4 rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-sm font-bold text-indigo-800">
+                                Compartilhar como Bolão
+                            </h3>
+                            <p class="text-xs text-indigo-600/70">
+                                Permita que seus amigos visualizem este fechamento.
+                            </p>
+                        </div>
+                        <label class="relative inline-flex cursor-pointer items-center">
+                            <input type="checkbox" wire:model.live="is_pool" class="peer sr-only">
+                            <div class="peer h-6 w-11 rounded-full bg-slate-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-indigo-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:border-gray-600 dark:bg-gray-700 dark:peer-focus:ring-indigo-800"></div>
+                        </label>
+                    </div>
+
+                    @if ($is_pool)
+                        <div class="pt-3 border-t border-indigo-100/60">
+                            <label class="block text-sm font-semibold text-slate-700">
+                                Participantes do Bolão
+                            </label>
+                            @if ($friends->isEmpty())
+                                <p class="text-xs text-slate-500 mt-2">
+                                    Você não possui amigos adicionados para compartilhar. <a href="{{ route('profile') }}" class="text-indigo-600 hover:underline">Adicione amigos aqui</a>.
+                                </p>
+                            @else
+                                <div class="mt-2 space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                    @foreach ($friends as $friend)
+                                        <label class="flex items-center gap-3 p-2 rounded-lg hover:bg-white transition cursor-pointer border border-transparent hover:border-indigo-100">
+                                            <input type="checkbox" wire:model="pool_participants" value="{{ $friend->id }}" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                                            <div class="flex flex-col">
+                                                <span class="text-sm font-medium text-slate-800">{{ $friend->name }}</span>
+                                                <span class="text-[10px] text-slate-500">ID: {{ $friend->share_code }}</span>
+                                            </div>
+                                        </label>
+                                    @endforeach
+                                </div>
+                                @error('pool_participants')
+                                    <p class="mt-2 text-sm font-medium text-rose-600">
+                                        {{ $message }}
+                                    </p>
+                                @enderror
+                            @endif
+                        </div>
+                    @endif
                 </div>
 
                 <div>

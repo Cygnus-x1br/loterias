@@ -40,6 +40,33 @@ services:
       - mariadb
       - redis
 
+  # Worker para processar as filas (Jobs em background)
+  queue:
+    image: loterias-app:latest
+    container_name: loterias_queue_prod
+    restart: always
+    command: php artisan queue:work --sleep=3 --tries=3
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - APP_KEY=${APP_KEY}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mariadb
+      - DB_PORT=3306
+      - DB_DATABASE=loterias_prod
+      - DB_USERNAME=loterias
+      - DB_PASSWORD=${DB_PASSWORD:-senha_segura_aqui}
+      - CACHE_STORE=${CACHE_STORE:-redis}
+      - QUEUE_CONNECTION=database
+      - REDIS_CLIENT=phpredis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    networks:
+      - loterias_prod_network
+    depends_on:
+      - mariadb
+      - redis
+
   # Banco de dados
   mariadb:
     image: mariadb:11
