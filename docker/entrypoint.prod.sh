@@ -1,4 +1,10 @@
 #!/bin/sh
+set -e
+
+# Se um comando customizado for passado (como o worker de fila), executa diretamente
+if [ "$#" -gt 0 ]; then
+    exec "$@"
+fi
 
 # Roda as migrations (pode dar erro na primeira vez se o DB ainda estiver subindo, o restart always resolve)
 php artisan migrate --force

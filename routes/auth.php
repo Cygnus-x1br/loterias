@@ -34,9 +34,6 @@ Route::middleware('auth')->group(function () {
     Volt::route('confirm-password', 'pages.auth.confirm-password')
         ->name('password.confirm');
 
-    Volt::route('account-password', 'pages.auth.confirm-password')
-        ->name('password.confirm');
-
     Volt::route('profile', 'pages.auth.profile')
         ->name('profile');
 
