@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.app')] class extends Component
+new #[Layout('layouts.app', ['title' => 'Gerenciamento de Conta'])] class extends Component
 {
     /**
      * Log the current user out of the application.
@@ -18,30 +18,58 @@ new #[Layout('layouts.app')] class extends Component
     }
 }; ?>
 
-<x-slot name="header">
-    <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-        {{ __('Profile') }}
-    </h2>
-</x-slot>
+<div class="mx-auto max-w-5xl space-y-6">
+    {{-- Cabeçalho da Página --}}
+    <section class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+        <div>
+            <div class="mb-3 flex items-center gap-2 text-sm text-slate-400">
+                <a
+                    href="{{ route('dashboard') }}"
+                    class="transition hover:text-indigo-600"
+                >
+                    Dashboard
+                </a>
 
-<div class="py-12">
-    <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-        <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
-            <div class="max-w-xl">
-                <livewire:profile.update-profile-information-form />
+                <span>/</span>
+
+                <span class="font-medium text-slate-700">
+                    Gerenciamento de Conta
+                </span>
             </div>
+
+            <div class="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
+                Perfil & Segurança
+            </div>
+
+            <h1 class="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">
+                Gerenciamento de Conta
+            </h1>
+
+            <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
+                Gerencie suas informações cadastrais, altere sua senha de acesso e configure a segurança da sua conta.
+            </p>
         </div>
+    </section>
 
-        <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
-            <div class="max-w-xl">
-                <livewire:profile.update-password-form />
-            </div>
+    {{-- Seção: Informações de Perfil --}}
+    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="max-w-2xl">
+            <livewire:profile.update-profile-information-form />
         </div>
+    </div>
 
-        <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
-            <div class="max-w-xl">
-                <livewire:profile.delete-user-form />
-            </div>
+    {{-- Seção: Alterar Senha --}}
+    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="max-w-2xl">
+            <livewire:profile.update-password-form />
+        </div>
+    </div>
+
+    {{-- Seção: Excluir Conta --}}
+    <div class="rounded-2xl border border-rose-100 bg-white p-6 shadow-sm">
+        <div class="max-w-2xl">
+            <livewire:profile.delete-user-form />
         </div>
     </div>
 </div>

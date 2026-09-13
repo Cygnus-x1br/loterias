@@ -24,6 +24,18 @@ class ProfileTest extends TestCase
             ->assertSeeVolt('profile.delete-user-form');
     }
 
+    public function test_topbar_contains_account_management_link(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->get(route('dashboard'));
+
+        $response
+            ->assertOk()
+            ->assertSee('Gerenciamento de Conta')
+            ->assertSee(route('profile'));
+    }
+
     public function test_profile_information_can_be_updated(): void
     {
         $user = User::factory()->create();
