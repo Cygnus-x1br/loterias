@@ -219,4 +219,55 @@ class ClosingPlacedAndCheckTest extends TestCase
         $this->assertEquals('checked', $bet->status);
         $this->assertEquals(15, $bet->hits);
     }
+
+    public function test_cannot_delete_individual_bet_when_placed_or_checked(): void
+    {
+        $bet = Bet::create([
+            'user_id' => $this->user->id,
+            'name' => 'Aposta Apostada',
+            'numbers' => range(1, 15),
+            'status' => 'placed',
+            'contest_number' => 3250,
+        ]);
+
+        Volt::actingAs($this->user)
+            ->test('pages.bets.index')
+            ->call('delete', $bet->id)
+            ->assertDontSee('Aposta excluída com sucesso');
+
+        $this->assertDatabaseHas('bets', ['id' => $bet->id]);
+    }
+
+    public function test_cannot_delete_or_reset_closing_bets_when_placed(): void
+    {
+        $closing = Closing::create([
+            'user_id' => $this->user->id,
+            'name' => 'Fechamento Apostado',
+            'method' => 'integral',
+            'base_numbers' => range(1, 16),
+            'bet_size' => 15,
+            'planned_bets' => 2,
+            'status' => 'placed',
+            'contest_number' => 3250,
+        ]);
+
+        $bet = Bet::create([
+            'user_id' => $this->user->id,
+            'closing_id' => $closing->id,
+            'name' => 'Aposta 1',
+            'numbers' => range(1, 15),
+            'status' => 'placed',
+            'contest_number' => 3250,
+        ]);
+
+        Volt::actingAs($this->user)
+            ->test('pages.closings.show', ['closing' => $closing])
+            ->call('deleteBet', $bet->id)
+            ->assertSet('generationError', 'Não é permitido excluir apostas de um fechamento marcado como Apostado ou Conferido.')
+            ->call('resetBets')
+            ->assertSet('generationError', 'Fechamentos marcados como Apostados ou Conferidos não podem ser reiniciados nem ter apostas apagadas.');
+
+        $this->assertDatabaseHas('bets', ['id' => $bet->id]);
+        $this->assertEquals(1, $closing->bets()->count());
+    }
 }

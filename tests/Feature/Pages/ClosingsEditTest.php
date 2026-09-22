@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Pages;
 
+use App\Models\Bet;
 use App\Models\Closing;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -100,7 +101,7 @@ class ClosingsEditTest extends TestCase
         ], $closing->parameters['temperature_distribution']);
     }
 
-    public function test_cannot_edit_completed_closing(): void
+    public function test_can_edit_completed_closing_and_it_resets_to_draft(): void
     {
         $closing = Closing::create([
             'user_id' => $this->user->id,
@@ -112,10 +113,35 @@ class ClosingsEditTest extends TestCase
             'status' => 'completed',
         ]);
 
+        Bet::create([
+            'user_id' => $this->user->id,
+            'closing_id' => $closing->id,
+            'name' => 'Aposta Antiga',
+            'numbers' => range(1, 15),
+            'status' => 'active',
+        ]);
+
+        $this->assertEquals(1, $closing->bets()->count());
+
         $response = $this->actingAs($this->user)
             ->get(route('closings.edit', $closing));
 
-        $response->assertRedirect(route('closings.show', $closing));
+        $response->assertOk();
+        $response->assertSee('Editar fechamento');
+
+        // Testa salvar alterações
+        Volt::actingAs($this->user)
+            ->test('pages.closings.edit', ['closing' => $closing])
+            ->assertSet('name', 'Fechamento Concluído')
+            ->set('name', 'Fechamento Reeditado')
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('closings.show', $closing));
+
+        $closing->refresh();
+        $this->assertEquals('Fechamento Reeditado', $closing->name);
+        $this->assertEquals('draft', $closing->status);
+        $this->assertEquals(0, $closing->bets()->count());
     }
 
     public function test_user_cannot_access_other_users_closing_edit(): void
@@ -135,7 +161,7 @@ class ClosingsEditTest extends TestCase
         $response->assertForbidden();
     }
 
-    public function test_show_page_displays_edit_button_only_for_draft_or_failed(): void
+    public function test_show_page_displays_edit_button_for_draft_failed_and_completed(): void
     {
         $draftClosing = Closing::create([
             'user_id' => $this->user->id,
@@ -162,6 +188,7 @@ class ClosingsEditTest extends TestCase
 
         Volt::actingAs($this->user)
             ->test('pages.closings.show', ['closing' => $completedClosing])
-            ->assertDontSee('Editar Fechamento');
+            ->assertSee('Editar Fechamento')
+            ->assertSee(route('closings.edit', $completedClosing));
     }
 }

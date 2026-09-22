@@ -7,6 +7,7 @@ use App\Models\HistoricalResult;
 use App\Models\User;
 use App\Services\LotofacilStatisticsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -19,6 +20,7 @@ class LotofacilContestComparisonTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Cache::flush();
         $this->user = User::factory()->create();
     }
 
@@ -108,5 +110,58 @@ class LotofacilContestComparisonTest extends TestCase
         $this->assertTrue($grid[1]['is_drawn']);
         $this->assertTrue($grid[16]['is_drawn']);
         $this->assertFalse($grid[25]['is_drawn']);
+    }
+
+    public function test_contests_have_distinct_contextual_temperatures(): void
+    {
+        // Cria sequência de 35 concursos para verificar que a dezena 25 é 'cold' nos concursos iniciais
+        // e evolui para 'hot' nos concursos mais recentes conforme sua frequência histórica aumenta.
+        // Concursos 9101 a 9115 (15 concursos): a dezena 25 nunca é sorteada.
+        for ($c = 9101; $c <= 9115; $c++) {
+            $drawn = [];
+            for ($i = 0; $i < 15; $i++) {
+                $drawn[] = (($c * 5 + $i) % 24) + 1;
+            }
+            sort($drawn);
+            HistoricalResult::create([
+                'contest_number' => $c,
+                'draw_date' => '2026-08-01',
+                'drawn_numbers' => $drawn,
+                'drawn_numbers_hash' => HistoricalResult::generateDrawnNumbersHash($drawn),
+            ]);
+        }
+
+        // Concursos 9116 a 9135 (20 concursos): a dezena 25 é sempre sorteada.
+        for ($c = 9116; $c <= 9135; $c++) {
+            $drawn = [25];
+            for ($i = 0; $i < 14; $i++) {
+                $drawn[] = (($c * 5 + $i) % 24) + 1;
+            }
+            sort($drawn);
+            HistoricalResult::create([
+                'contest_number' => $c,
+                'draw_date' => '2026-08-10',
+                'drawn_numbers' => $drawn,
+                'drawn_numbers_hash' => HistoricalResult::generateDrawnNumbersHash($drawn),
+            ]);
+        }
+
+        Cache::forget('lotofacil_contests_comparison_25');
+
+        $service = app(LotofacilStatisticsService::class);
+        $data = $service->getContestsComparisonAnalysis(25);
+
+        $contests = collect($data['contests'])->keyBy('contest_number');
+
+        // No concurso 9135, a dezena 25 apareceu em 19 dos 20 concursos anteriores (alta frequência), logo 'hot'
+        $tempAt9135 = $contests[9135]['numbers_grid'][25]['temperature'];
+        $this->assertEquals('hot', $tempAt9135);
+
+        // No concurso 9116, a dezena 25 não apareceu em nenhum dos 15 concursos anteriores (frequência 0), logo 'cold'
+        $tempAt9116 = $contests[9116]['numbers_grid'][25]['temperature'];
+        $this->assertEquals('cold', $tempAt9116);
+
+        // Garante que a classificação térmica da mesma dezena é dinâmica e contextual a cada sorteio
+        $this->assertNotEquals($tempAt9135, $tempAt9116);
     }
 }

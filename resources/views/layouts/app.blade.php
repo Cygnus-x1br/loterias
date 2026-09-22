@@ -23,7 +23,17 @@
 
 <body class="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
     <div
-        x-data="{ sidebarOpen: false }"
+        x-data="{ 
+            sidebarOpen: false, 
+            isDesktop: window.innerWidth >= 1024,
+            handleResize() {
+                this.isDesktop = window.innerWidth >= 1024;
+                if (!this.isDesktop) {
+                    this.sidebarOpen = false;
+                }
+            }
+        }"
+        @resize.window.debounce.50ms="handleResize()"
         class="min-h-screen"
     >
         {{-- Overlay mobile --}}

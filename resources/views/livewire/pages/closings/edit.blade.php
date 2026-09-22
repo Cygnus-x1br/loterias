@@ -71,8 +71,8 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
             abort(403);
         }
 
-        if ($closing->status !== 'draft' && $closing->status !== 'failed') {
-            session()->flash('error', 'Fechamentos já gerados ou concluídos não podem ter seus parâmetros alterados.');
+        if ($closing->status !== 'draft' && $closing->status !== 'failed' && $closing->status !== 'completed') {
+            session()->flash('error', 'Fechamentos já apostados ou conferidos não podem ter seus parâmetros alterados.');
             $this->redirectRoute('closings.show', $closing);
             return;
         }
@@ -639,8 +639,8 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
 
     public function save(): void
     {
-        if ($this->closing->status !== 'draft' && $this->closing->status !== 'failed') {
-            session()->flash('error', 'Fechamentos já gerados ou concluídos não podem ter seus parâmetros alterados.');
+        if ($this->closing->status !== 'draft' && $this->closing->status !== 'failed' && $this->closing->status !== 'completed') {
+            session()->flash('error', 'Fechamentos já apostados ou conferidos não podem ter seus parâmetros alterados.');
             $this->redirectRoute('closings.show', $this->closing);
             return;
         }
@@ -772,7 +772,7 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                 }
             }
 
-            $this->closing->update([
+            $closingUpdates = [
                 'name' => $this->name,
                 'method' => $this->method,
                 'base_numbers' => $this->base_numbers,
@@ -788,7 +788,17 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                 'notes' => $this->notes !== ''
                     ? $this->notes
                     : null,
-            ]);
+            ];
+
+            // Se o fechamento já possuía apostas geradas (status completed), apaga as apostas antigas e volta para draft
+            if ($this->closing->status === 'completed' || $this->closing->bets()->exists()) {
+                $this->closing->bets()->delete();
+                $closingUpdates['status'] = 'draft';
+                $closingUpdates['contest_number'] = null;
+                $closingUpdates['draw_date'] = null;
+            }
+
+            $this->closing->update($closingUpdates);
 
             if ($this->is_pool && !empty($this->pool_participants)) {
                 $this->closing->sharedWith()->sync($this->pool_participants);
@@ -861,8 +871,24 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
         </h1>
 
         <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
-            Altere o grupo-base e os parâmetros do fechamento em rascunho antes da geração das apostas.
+            Altere o grupo-base e os parâmetros do fechamento antes da geração das apostas.
         </p>
+
+        @if ($closing->status === 'completed' || $closing->bets()->exists())
+            <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <div class="flex items-start gap-3">
+                    <svg class="mt-0.5 h-5 w-5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                        <h4 class="text-sm font-bold text-amber-800">Atenção: Fechamento já concluído</h4>
+                        <p class="mt-0.5 text-xs text-amber-700 leading-5">
+                            Este fechamento já possui apostas geradas. Ao salvar alterações nos parâmetros ou dezenas, as apostas anteriores serão excluídas e o fechamento retornará para <strong>Rascunho</strong> para que você possa gerar os novos jogos.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        @endif
     </section>
 
     <div class="grid gap-6 xl:grid-cols-3">

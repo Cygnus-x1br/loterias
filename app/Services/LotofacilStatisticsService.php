@@ -661,12 +661,13 @@ class LotofacilStatisticsService
     public function getContestsComparisonAnalysis(int $limit = 25): array
     {
         $limit = in_array($limit, [10, 25, 50, 100], true) ? $limit : 25;
+        $historyWindow = 20;
         $cacheKey = "lotofacil_contests_comparison_{$limit}";
 
-        return Cache::remember($cacheKey, now()->addHours(6), function () use ($limit) {
+        return Cache::remember($cacheKey, now()->addHours(6), function () use ($limit, $historyWindow) {
             $rawResults = HistoricalResult::query()
                 ->orderBy('contest_number', 'desc')
-                ->take($limit + 1)
+                ->take($limit + $historyWindow + 1)
                 ->get(['id', 'contest_number', 'draw_date', 'drawn_numbers']);
 
             if ($rawResults->isEmpty()) {
@@ -685,7 +686,7 @@ class LotofacilStatisticsService
 
             $results = $rawResults->take($limit);
             $temperatureMap = $this->calculatePeriodTemperatures($results);
-            $contestsList = $this->buildContestsComparisonList($rawResults, $limit, $temperatureMap);
+            $contestsList = $this->buildContestsComparisonList($rawResults, $limit, $temperatureMap, $historyWindow);
             $averages = $this->calculateComparisonAverages($contestsList);
 
             $hotNumbers = [];
@@ -768,7 +769,7 @@ class LotofacilStatisticsService
     /**
      * Constrói a lista estruturada de concursos para a tabela comparativa.
      */
-    private function buildContestsComparisonList(Collection $rawResults, int $limit, array $temperatureMap): array
+    private function buildContestsComparisonList(Collection $rawResults, int $limit, array $temperatureMap, int $historyWindow = 20): array
     {
         $primesConst = [2, 3, 5, 7, 11, 13, 17, 19, 23];
         $fibonacciConst = [1, 2, 3, 5, 8, 13, 21];
@@ -801,15 +802,24 @@ class LotofacilStatisticsService
 
             $drawnSet = array_flip($drawn);
 
-            // Grade das 25 dezenas com status
+            // Janela histórica contextual (concursos anteriores ao sorteio atual)
+            $contestHistorySlice = $resultsArray->slice($idx + 1, $historyWindow);
+            if ($contestHistorySlice->isNotEmpty()) {
+                $contestTemperatureMap = $this->calculatePeriodTemperatures($contestHistorySlice);
+            } else {
+                // Caso seja o concurso mais antigo disponível sem histórico anterior, usa o mapa global do período
+                $contestTemperatureMap = $temperatureMap;
+            }
+
+            // Grade das 25 dezenas com status e temperatura específica deste concurso
             $numbersGrid = [];
             for ($num = 1; $num <= 25; $num++) {
                 $isDrawn = isset($drawnSet[$num]);
                 $numbersGrid[$num] = [
                     'number' => $num,
                     'is_drawn' => $isDrawn,
-                    'temperature' => $temperatureMap[$num]['temperature'] ?? 'neutral',
-                    'frequency' => $temperatureMap[$num]['frequency'] ?? 0,
+                    'temperature' => $contestTemperatureMap[$num]['temperature'] ?? 'neutral',
+                    'frequency' => $contestTemperatureMap[$num]['frequency'] ?? 0,
                 ];
             }
 

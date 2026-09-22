@@ -38,6 +38,10 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     public bool $is_pool = false;
     public array $pool_participants = [];
 
+    // Seleção de apostas para exclusão / refazer
+    public array $selectedBets = [];
+    public bool $selectAll = false;
+
     public function openShareModal(): void
     {
         if ($this->closing->user_id !== Auth::id()) {
@@ -95,7 +99,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         if ($closing->status === 'placed' || $closing->status === 'checked') {
             $this->evaluateResults();
         }
-        
+
         if (in_array($closing->status, ['completed', 'placed', 'checked'])) {
             $this->checkBaseNumbersCoverage();
         }
@@ -347,6 +351,156 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         }
     }
 
+    /**
+     * Refaz as apostas do fechamento (apaga todas e reseta para rascunho).
+     */
+    public function resetBets(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode refazer as apostas.');
+        }
+
+        if (in_array($this->closing->status, ['placed', 'checked'], true)) {
+            $this->generationError = 'Fechamentos marcados como Apostados ou Conferidos não podem ser reiniciados nem ter apostas apagadas.';
+            return;
+        }
+
+        $this->generationError = null;
+        $this->generationSuccess = null;
+
+        try {
+            app(ClosingGenerator::class)->resetToDraft($this->closing);
+            $this->selectedBets = [];
+            $this->selectAll = false;
+            $this->checkSummary = null;
+            $this->checkedContestInfo = null;
+            $this->baseNumbersCoverage = null;
+            $this->combinatorialCoverage = null;
+            $this->generationSuccess = 'Todas as apostas foram apagadas. O fechamento voltou para o estado de rascunho.';
+        } catch (\Throwable $exception) {
+            report($exception);
+            $this->generationError = 'Ocorreu um erro ao reiniciar as apostas do fechamento.';
+        } finally {
+            $this->closing->refresh();
+        }
+    }
+
+    /**
+     * Completa as apostas faltantes até atingir a quantidade planejada.
+     */
+    public function completeBets(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode completar apostas.');
+        }
+
+        if (in_array($this->closing->status, ['placed', 'checked'], true)) {
+            $this->generationError = 'Fechamentos marcados como Apostados ou Conferidos não podem ser editados.';
+            return;
+        }
+
+        $this->generationError = null;
+        $this->generationSuccess = null;
+
+        try {
+            $addedBets = app(ClosingGenerator::class)->completeBets($this->closing);
+            if ($addedBets > 0) {
+                $this->generationSuccess = "{$addedBets} aposta(s) adicionada(s) com sucesso para completar o fechamento!";
+            } else {
+                $this->generationSuccess = 'O total planejado de apostas já foi atingido.';
+            }
+            $this->checkBaseNumbersCoverage();
+        } catch (\InvalidArgumentException|\LogicException $exception) {
+            $this->generationError = $exception->getMessage();
+        } catch (\Throwable $exception) {
+            report($exception);
+            $this->generationError = 'Ocorreu um erro ao completar as apostas faltantes.';
+        } finally {
+            $this->closing->refresh();
+        }
+    }
+
+    /**
+     * Exclui uma única aposta específica do fechamento.
+     */
+    public function deleteBet(int $betId): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode excluir apostas.');
+        }
+
+        if (in_array($this->closing->status, ['placed', 'checked'], true)) {
+            $this->generationError = 'Não é permitido excluir apostas de um fechamento marcado como Apostado ou Conferido.';
+            return;
+        }
+
+        $bet = $this->closing->bets()->where('id', $betId)->first();
+        if (! $bet) {
+            return;
+        }
+
+        if (in_array($bet->status, ['placed', 'checked'], true)) {
+            $this->generationError = 'Apostas marcadas como Apostadas ou Conferidas não podem ser excluídas.';
+            return;
+        }
+
+        $bet->delete();
+        $this->selectedBets = array_values(array_filter($this->selectedBets, fn ($id) => (int) $id !== $betId));
+
+        // Renumera e reavalia a cobertura das dezenas da base
+        app(ClosingGenerator::class)->renumberBets($this->closing);
+        $this->checkBaseNumbersCoverage();
+        $this->generationSuccess = 'Aposta excluída com sucesso.';
+        $this->closing->refresh();
+    }
+
+    /**
+     * Exclui as apostas selecionadas em lote.
+     */
+    public function deleteSelectedBets(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode excluir apostas.');
+        }
+
+        if (in_array($this->closing->status, ['placed', 'checked'], true)) {
+            $this->generationError = 'Não é permitido excluir apostas de um fechamento marcado como Apostado ou Conferido.';
+            return;
+        }
+
+        if (empty($this->selectedBets)) {
+            return;
+        }
+
+        $count = $this->closing->bets()
+            ->whereIn('id', $this->selectedBets)
+            ->whereNotIn('status', ['placed', 'checked'])
+            ->delete();
+
+        $this->selectedBets = [];
+        $this->selectAll = false;
+
+        // Renumera e reavalia a cobertura das dezenas da base
+        app(ClosingGenerator::class)->renumberBets($this->closing);
+        $this->checkBaseNumbersCoverage();
+        $this->generationSuccess = "{$count} aposta(s) excluída(s) com sucesso.";
+        $this->closing->refresh();
+    }
+
+    /**
+     * Alterna a seleção de todas as apostas da página atual.
+     */
+    public function updatedSelectAll(bool $value): void
+    {
+        if ($value) {
+            $currentPageIds = $this->closing->bets()->paginate(10)->pluck('id')->map(fn ($id) => (string) $id)->toArray();
+            $this->selectedBets = array_values(array_unique(array_merge($this->selectedBets, $currentPageIds)));
+        } else {
+            $currentPageIds = $this->closing->bets()->paginate(10)->pluck('id')->map(fn ($id) => (string) $id)->toArray();
+            $this->selectedBets = array_values(array_diff($this->selectedBets, $currentPageIds));
+        }
+    }
+
     public ?array $combinatorialCoverage = null;
 
     public function checkBaseNumbersCoverage(): void
@@ -379,12 +533,12 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         // Auditoria Combinatória: Aplicável a QUALQUER método, desde que haja apostas e uma base razoável (<= 23) para não travar a UI
         if (count($bets) > 0 && count($baseNumbers) >= 15 && count($baseNumbers) <= 23) {
             // Tenta resgatar as garantias dos parâmetros, ou assume o padrão Lotofácil (Garante 14 se acertar 15)
-            $guaranteeHits = $this->closing->parameters['reduced_parameters']['guarantee_hits'] 
-                ?? $this->closing->parameters['guarantee_hits'] 
+            $guaranteeHits = $this->closing->parameters['reduced_parameters']['guarantee_hits']
+                ?? $this->closing->parameters['guarantee_hits']
                 ?? 15;
-                
-            $guaranteePoints = $this->closing->parameters['reduced_parameters']['guarantee_points'] 
-                ?? $this->closing->parameters['guarantee_points'] 
+
+            $guaranteePoints = $this->closing->parameters['reduced_parameters']['guarantee_points']
+                ?? $this->closing->parameters['guarantee_points']
                 ?? 14;
 
             // Extrai as apostas geradas num array limpo
@@ -401,7 +555,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                     guaranteePoints: $guaranteePoints,
                     guaranteeHits: $guaranteeHits
                 );
-                
+
                 // Se não for o método reduzido, mudamos o texto da condição para ficar mais claro
                 if ($this->closing->method !== 'reduced') {
                      $this->combinatorialCoverage['condicoes_da_garantia'] = "Análise passiva: Qual a chance matemática de fazer {$guaranteePoints} pontos acertando {$guaranteeHits} dezenas na base escolhida?";
@@ -507,7 +661,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                             $betPrice = app(\App\Services\LotofacilSettingService::class)->getPriceFor($closing->bet_size);
                             $totalCost = $totalBets * $betPrice;
                         @endphp
-                        
+
                         @if($totalBets > 0)
                             <div class="mt-4 flex flex-col gap-0.5 rounded-xl bg-slate-50 border border-slate-200 p-3 max-w-sm">
                                 <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Estimativa de Custo</span>
@@ -532,7 +686,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                             </button>
                         @endif
 
-                        @if ($closing->status === 'draft' || $closing->status === 'failed')
+                        @if ($closing->status === 'draft' || $closing->status === 'failed' || $closing->status === 'completed')
                             <a
                                 href="{{ route('closings.edit', $closing) }}"
                                 class="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
@@ -638,6 +792,25 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                 </svg>
                                 {{ $closing->status === 'placed' || $closing->status === 'checked' ? 'Editar Concurso Apostado' : 'Marcar como Apostado' }}
                             </button>
+
+                            {{-- Botão Refazer Apostas (apenas se ainda não apostado nem conferido) --}}
+                            @if (! in_array($closing->status, ['placed', 'checked'], true))
+                                <button
+                                    type="button"
+                                    wire:click="resetBets"
+                                    wire:confirm="Tem certeza de que deseja apagar todas as apostas geradas deste fechamento? Ele retornará ao status de rascunho para que você possa gerar novamente ou editar os parâmetros."
+                                    wire:loading.attr="disabled"
+                                    wire:target="resetBets"
+                                    class="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-100 hover:text-rose-800 disabled:opacity-50"
+                                    title="Apagar todas as apostas e reiniciar o fechamento em rascunho"
+                                >
+                                    <svg class="h-4 w-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    <span wire:loading.remove wire:target="resetBets">Refazer apostas</span>
+                                    <span wire:loading wire:target="resetBets">Reiniciando...</span>
+                                </button>
+                            @endif
                         @endif
 
                         {{-- Botão Conferir Resultado --}}
@@ -707,7 +880,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         </div>
                     </div>
                 @endif
-                
+
                 @if ($baseNumbersCoverage)
                     <div class="mt-5 rounded-xl border {{ $baseNumbersCoverage['all_used'] ? 'border-indigo-200 bg-indigo-50' : 'border-amber-200 bg-amber-50' }} p-4">
                         <div class="flex items-start gap-3">
@@ -724,10 +897,10 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                 </svg>
                                 <div>
                                     <p class="text-sm leading-6 text-amber-800">
-                                        <strong>Atenção:</strong> Foram utilizadas apenas {{ $baseNumbersCoverage['total_used'] }} das {{ $baseNumbersCoverage['total_base'] }} dezenas do seu grupo base nas apostas geradas. 
+                                        <strong>Atenção:</strong> Foram utilizadas apenas {{ $baseNumbersCoverage['total_used'] }} das {{ $baseNumbersCoverage['total_base'] }} dezenas do seu grupo base nas apostas geradas.
                                     </p>
                                     <p class="mt-1 text-xs text-amber-700 flex items-center flex-wrap gap-1">
-                                        <span>Dezenas não utilizadas:</span> 
+                                        <span>Dezenas não utilizadas:</span>
                                         @foreach ($baseNumbersCoverage['unused_numbers'] as $uNum)
                                             <span class="inline-flex h-5 w-5 items-center justify-center rounded bg-amber-200/50 font-bold">
                                                 {{ str_pad($uNum, 2, '0', STR_PAD_LEFT) }}
@@ -737,6 +910,45 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                 </div>
                             @endif
                         </div>
+                    </div>
+                @endif
+
+                {{-- Aviso e Ação de Apostas Faltantes (quando geradas < planned_bets) --}}
+                @php
+                    $currentBetsCount = $closing->bets()->count();
+                    $missingBetsCount = ($closing->planned_bets !== null && $closing->planned_bets > $currentBetsCount) ? ($closing->planned_bets - $currentBetsCount) : 0;
+                @endphp
+
+                @if ($missingBetsCount > 0 && $closing->status === 'completed' && $closing->user_id === Auth::id())
+                    <div class="mt-5 flex flex-col gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex items-start gap-3">
+                            <svg class="mt-0.5 h-5 w-5 shrink-0 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                                <h4 class="text-sm font-bold text-sky-900">Apostas Incompletas</h4>
+                                <p class="text-xs text-sky-800 leading-5">
+                                    Foram geradas <strong>{{ $currentBetsCount }}</strong> de <strong>{{ $closing->planned_bets }}</strong> apostas planejadas (faltam <strong>{{ $missingBetsCount }}</strong>).
+                                    @if ($baseNumbersCoverage && ! $baseNumbersCoverage['all_used'])
+                                        A complementação priorizará incluir as dezenas da base que ainda não foram contempladas.
+                                    @endif
+                                </p>
+                            </div>
+                        </div>
+
+                        <button
+                            type="button"
+                            wire:click="completeBets"
+                            wire:loading.attr="disabled"
+                            wire:target="completeBets"
+                            class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-sky-700 disabled:opacity-50"
+                        >
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                            <span wire:loading.remove wire:target="completeBets">Completar apostas faltantes</span>
+                            <span wire:loading wire:target="completeBets">Completando...</span>
+                        </button>
                     </div>
                 @endif
             </section>
@@ -878,25 +1090,73 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                 </div>
 
                 @if ($bets->count() > 0)
+                    {{-- Barra de Ações em Lote para Apostas Selecionadas --}}
+                    @if (count($selectedBets) > 0 && $closing->user_id === Auth::id())
+                        <div class="flex items-center justify-between gap-3 bg-indigo-50/80 border-b border-indigo-100 px-5 py-3 sm:px-6">
+                            <div class="flex items-center gap-2">
+                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
+                                    {{ count($selectedBets) }}
+                                </span>
+                                <span class="text-xs font-bold text-indigo-950">
+                                    aposta(s) selecionada(s)
+                                </span>
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    wire:click="deleteSelectedBets"
+                                    wire:confirm="Tem certeza de que deseja excluir as {{ count($selectedBets) }} apostas selecionadas deste fechamento? Você poderá depois completar as apostas faltantes."
+                                    wire:loading.attr="disabled"
+                                    wire:target="deleteSelectedBets"
+                                    class="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50"
+                                >
+                                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    <span wire:loading.remove wire:target="deleteSelectedBets">Excluir selecionadas</span>
+                                    <span wire:loading wire:target="deleteSelectedBets">Excluindo...</span>
+                                </button>
+                            </div>
+                        </div>
+                    @endif
+
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-slate-100">
                             <thead class="bg-slate-50">
                                 <tr>
-                                    <th class="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500 sm:px-6">
+                                    @if ($closing->user_id === Auth::id() && ! in_array($closing->status, ['placed', 'checked'], true))
+                                        <th class="w-10 px-3 py-3 text-center">
+                                            <input
+                                                type="checkbox"
+                                                wire:model.live="selectAll"
+                                                class="rounded border-slate-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+                                                title="Selecionar todas desta página"
+                                            >
+                                        </th>
+                                    @endif
+
+                                    <th class="w-32 px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500 sm:w-40 sm:px-4">
                                         Aposta
                                     </th>
 
-                                    <th class="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500 sm:px-6">
+                                    <th class="w-[190px] min-w-[170px] px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500 sm:px-4">
                                         Dezenas
                                     </th>
 
-                                    <th class="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500 sm:px-6">
+                                    <th class="w-24 px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500 sm:px-4">
                                         Status
                                     </th>
 
-                                    <th class="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500 sm:px-6">
+                                    <th class="w-28 px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500 sm:px-4">
                                         Acertos
                                     </th>
+
+                                    @if ($closing->user_id === Auth::id() && ! in_array($closing->status, ['placed', 'checked'], true))
+                                        <th class="w-16 px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-slate-500 sm:px-4">
+                                            Ações
+                                        </th>
+                                    @endif
                                 </tr>
                             </thead>
 
@@ -910,18 +1170,29 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                         wire:key="closing-bet-{{ $bet->id }}"
                                         class="transition hover:bg-slate-50"
                                     >
-                                        <td class="whitespace-nowrap px-5 py-4 sm:px-6">
-                                            <div class="font-semibold text-slate-900">
+                                        @if ($closing->user_id === Auth::id() && ! in_array($closing->status, ['placed', 'checked'], true))
+                                            <td class="w-10 px-3 py-3.5 text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    value="{{ (string) $bet->id }}"
+                                                    wire:model.live="selectedBets"
+                                                    class="rounded border-slate-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+                                                >
+                                            </td>
+                                        @endif
+
+                                        <td class="w-32 px-3 py-3.5 sm:w-40 sm:px-4">
+                                            <div class="truncate font-semibold text-slate-900" title="{{ $bet->name ?: 'Aposta #' . $bet->id }}">
                                                 {{ $bet->name ?: 'Aposta #' . $bet->id }}
                                             </div>
 
-                                            <div class="mt-1 text-xs text-slate-500">
+                                            <div class="mt-0.5 text-xs text-slate-500">
                                                 #{{ $bet->id }}
                                             </div>
                                         </td>
 
-                                        <td class="px-5 py-4 sm:px-6">
-                                            <div class="flex max-w-xl flex-wrap gap-1.5">
+                                        <td class="w-[190px] min-w-[160px] px-3 py-3.5 sm:px-4">
+                                            <div class="grid w-fit grid-cols-5 gap-1.5" style="grid-template-columns: repeat(5, minmax(0, 1fr));">
                                                 @foreach ($bet->numbers ?? [] as $number)
                                                     @php
                                                         $isDrawn = ! empty($referenceNumbers) && in_array($number, $referenceNumbers, true);
@@ -937,9 +1208,9 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                                     </span>
                                                 @endforeach
                                             </div>
-                                            
+
                                             @if(isset($bet->scoreData))
-                                                <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                                                <div class="mt-2 flex max-w-[210px] flex-wrap items-center gap-1.5 text-[10px]">
                                                     <span class="font-bold text-{{ $bet->scoreData['color'] }}-700 bg-{{ $bet->scoreData['color'] }}-50 px-2 py-0.5 rounded-full border border-{{ $bet->scoreData['color'] }}-200" title="Score de equilíbrio: {{ $bet->scoreData['total_score'] }} pts">
                                                         Score: {{ $bet->scoreData['total_score'] }}
                                                     </span>
@@ -982,7 +1253,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                             @endif
                                         </td>
 
-                                        <td class="whitespace-nowrap px-5 py-4 sm:px-6">
+                                        <td class="w-24 whitespace-nowrap px-3 py-3.5 sm:px-4">
                                             <span @class([
                                                 'rounded-full px-2.5 py-1 text-xs font-semibold',
                                                 match ($bet->status) {
@@ -1001,10 +1272,10 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                             </span>
                                         </td>
 
-                                        <td class="whitespace-nowrap px-5 py-4 sm:px-6">
+                                        <td class="w-28 whitespace-nowrap px-3 py-3.5 sm:px-4">
                                             @if ($bet->hits !== null)
                                                 <span @class([
-                                                    'inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold',
+                                                    'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold',
                                                     'bg-amber-100 text-amber-900 border border-amber-300 shadow-sm' => $bet->hits === 15,
                                                     'bg-emerald-100 text-emerald-800 border border-emerald-300' => in_array($bet->hits, [11, 12, 13, 14]),
                                                     'bg-slate-100 text-slate-600' => $bet->hits < 11,
@@ -1019,6 +1290,26 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                                 <span class="text-xs text-slate-400">—</span>
                                             @endif
                                         </td>
+
+                                        @if ($closing->user_id === Auth::id() && ! in_array($closing->status, ['placed', 'checked'], true))
+                                            <td class="w-16 whitespace-nowrap px-3 py-3.5 text-right text-xs sm:px-4">
+                                                @if (! in_array($bet->status, ['placed', 'checked'], true))
+                                                    <button
+                                                        type="button"
+                                                        wire:click="deleteBet({{ $bet->id }})"
+                                                        wire:confirm="Tem certeza de que deseja excluir esta aposta? Você poderá completar as apostas faltantes depois."
+                                                        wire:loading.attr="disabled"
+                                                        wire:target="deleteBet({{ $bet->id }})"
+                                                        class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                                                        title="Excluir aposta"
+                                                    >
+                                                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                        </svg>
+                                                    </button>
+                                                @endif
+                                            </td>
+                                        @endif
                                     </tr>
                                 @endforeach
                             </tbody>

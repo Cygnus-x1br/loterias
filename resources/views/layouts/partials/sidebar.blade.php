@@ -1,5 +1,5 @@
 <aside
-    x-show="sidebarOpen || window.innerWidth >= 1024"
+    x-show="sidebarOpen || isDesktop"
     x-transition:enter="transition ease-out duration-200"
     x-transition:enter-start="-translate-x-full"
     x-transition:enter-end="translate-x-0"

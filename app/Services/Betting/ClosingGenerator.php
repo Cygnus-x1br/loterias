@@ -149,6 +149,179 @@ class ClosingGenerator
     }
 
     /**
+     * Reseta as apostas do fechamento e o retorna para o estado de rascunho (draft).
+     */
+    public function resetToDraft(Closing $closing): void
+    {
+        if (in_array($closing->status, ['placed', 'checked'], true)) {
+            throw new LogicException('Fechamentos marcados como Apostados ou Conferidos não podem ser reiniciados.');
+        }
+
+        DB::transaction(function () use ($closing): void {
+            $closing->bets()->delete();
+            $closing->update([
+                'status' => 'draft',
+                'contest_number' => null,
+                'draw_date' => null,
+            ]);
+        });
+    }
+
+    /**
+     * Renumera as apostas existentes de um fechamento em ordem crescente sequencial (Aposta 1, Aposta 2...).
+     */
+    public function renumberBets(Closing $closing): void
+    {
+        $bets = $closing->bets()->orderBy('id')->get();
+        $index = 1;
+        foreach ($bets as $bet) {
+            $bet->update([
+                'name' => sprintf('%s - Aposta %d', $closing->name, $index),
+            ]);
+            $index++;
+        }
+    }
+
+    /**
+     * Completa as apostas faltantes até atingir a quantidade planejada ($closing->planned_bets).
+     *
+     * Prioriza dezenas do grupo-base que ainda não estejam presentes em nenhuma aposta.
+     * Garante que não sejam geradas duplicatas nem combinações com 15 dezenas já sorteadas na história.
+     *
+     * @throws LogicException|InvalidArgumentException
+     */
+    public function completeBets(Closing $closing): int
+    {
+        if (in_array($closing->status, ['placed', 'checked'], true)) {
+            throw new LogicException('Fechamentos marcados como Apostados ou Conferidos não podem receber novas apostas.');
+        }
+
+        $plannedBets = (int) $closing->planned_bets;
+        if ($plannedBets < 1) {
+            throw new InvalidArgumentException('Este fechamento não possui quantidade planejada de apostas definida.');
+        }
+
+        $existingBets = $closing->bets()->orderBy('id')->get();
+        $currentCount = $existingBets->count();
+
+        if ($currentCount >= $plannedBets) {
+            return 0;
+        }
+
+        $neededCount = $plannedBets - $currentCount;
+        $baseNumbers = array_values(array_map('intval', $closing->base_numbers ?? []));
+        sort($baseNumbers);
+        $betSize = (int) $closing->bet_size;
+
+        if (count($baseNumbers) < $betSize) {
+            throw new InvalidArgumentException('O grupo-base possui menos dezenas que o tamanho da aposta.');
+        }
+
+        // Mapeia combinações já existentes (normalizadas)
+        $existingHashes = [];
+        $usedNumbers = [];
+
+        foreach ($existingBets as $bet) {
+            $numbers = is_array($bet->numbers) ? $bet->numbers : (json_decode((string) $bet->numbers, true) ?? []);
+            $numbers = array_map('intval', $numbers);
+            sort($numbers);
+            $existingHashes[implode('-', $numbers)] = true;
+            foreach ($numbers as $n) {
+                $usedNumbers[$n] = true;
+            }
+        }
+
+        // Dezenas do grupo-base que ainda não foram contempladas em nenhuma aposta
+        $uncoveredNumbers = array_values(array_diff($baseNumbers, array_keys($usedNumbers)));
+
+        $historicalHashes = app(LotofacilStatisticsService::class)->getHistoricalDrawHashes();
+        $createdBets = 0;
+
+        DB::transaction(function () use (
+            $closing,
+            $baseNumbers,
+            $betSize,
+            $neededCount,
+            $uncoveredNumbers,
+            $historicalHashes,
+            &$existingHashes,
+            &$createdBets,
+            $currentCount
+        ): void {
+            $attempts = 0;
+            $maxAttempts = $neededCount * 1000 + 2000;
+
+            while ($createdBets < $neededCount && $attempts < $maxAttempts) {
+                $attempts++;
+
+                // Monta a combinação priorizando dezenas ainda descobertas
+                $combination = [];
+
+                if (! empty($uncoveredNumbers)) {
+                    // Pega até ($betSize - 1) dezenas descobertas para garantir que sobre espaço
+                    shuffle($uncoveredNumbers);
+                    $takeUncovered = min(count($uncoveredNumbers), $betSize);
+                    $combination = array_slice($uncoveredNumbers, 0, $takeUncovered);
+                }
+
+                // Preenche o restante com dezenas do grupo-base
+                $remainingBase = array_values(array_diff($baseNumbers, $combination));
+                shuffle($remainingBase);
+                $neededRemaining = $betSize - count($combination);
+                $combination = array_merge($combination, array_slice($remainingBase, 0, $neededRemaining));
+
+                sort($combination);
+
+                if (count($combination) !== $betSize) {
+                    continue;
+                }
+
+                $hash = implode('-', $combination);
+                if (isset($existingHashes[$hash])) {
+                    continue;
+                }
+
+                // Se a aposta tem 15 dezenas, verifica se já saiu na história
+                if (count($combination) === 15) {
+                    $drawnHash = HistoricalResult::generateDrawnNumbersHash($combination);
+                    if (isset($historicalHashes[$drawnHash])) {
+                        continue;
+                    }
+                }
+
+                Bet::create([
+                    'user_id' => $closing->user_id,
+                    'closing_id' => $closing->id,
+                    'name' => sprintf(
+                        '%s - Aposta %d',
+                        $closing->name,
+                        $currentCount + $createdBets + 1
+                    ),
+                    'numbers' => $combination,
+                    'source' => 'closing',
+                    'method' => $closing->method,
+                    'status' => $closing->status === 'placed' ? 'placed' : 'active',
+                    'contest_number' => $closing->contest_number,
+                    'draw_date' => $closing->draw_date,
+                    'notes' => null,
+                ]);
+
+                $existingHashes[$hash] = true;
+                $uncoveredNumbers = array_values(array_diff($uncoveredNumbers, $combination));
+                $createdBets++;
+            }
+
+            if ($createdBets === 0 && $neededCount > 0) {
+                throw new LogicException('Não foi possível gerar novas apostas únicas para completar o fechamento.');
+            }
+        });
+
+        $this->renumberBets($closing);
+
+        return $createdBets;
+    }
+
+    /**
      * Valida os parâmetros gerais do fechamento.
      */
     protected function validateClosing(Closing $closing): void
