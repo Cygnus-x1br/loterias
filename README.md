@@ -1,58 +1,96 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Sistema Loterias — Lotofácil
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Sistema web para geração, fechamento, conferência e análise combinatória de apostas da **Lotofácil** (25 dezenas, sorteio de 15, premiação de 11 a 15 acertos).
 
-## About Laravel
+O sistema **não promete prever resultados**. Todas as dezenas são tratadas como equiprováveis; estatísticas históricas, temperaturas, ciclos e atrasos são usados apenas como filtros heurísticos, conforme as regras de comunicação definidas em [`docs/prompt_base.MD`](docs/prompt_base.MD) (Item 30).
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- PHP 8.3, Laravel 13
+- Livewire 3 + Volt (páginas single-file), Alpine.js
+- Tailwind CSS 4, Vite
+- Autenticação: Laravel Breeze (Livewire)
+- `phpexperts/combinatorics` (geração de combinações via iteradores) e `phpoffice/phpspreadsheet` (importação do histórico em XLSX)
+- Banco: SQLite em desenvolvimento local, MariaDB no Docker/produção; testes em SQLite
+- Testes: PHPUnit
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Funcionalidades
 
-## Learning Laravel
+| Área | Rota | O que faz |
+| --- | --- | --- |
+| Dashboard | `/dashboard` | Visão geral, último concurso, ciclo de dezenas, atrasos e distribuição térmica |
+| Apostas | `/apostas` | Cadastro manual e listagem de apostas avulsas; apostas `placed`/`checked` ficam bloqueadas |
+| Fechamentos | `/fechamentos` | Criação, edição, geração, impressão, exclusão pontual, "refazer" e "completar apostas faltantes" |
+| Otimização | `/fechamentos/otimizacao`, `/fechamentos/{id}/otimizar` | Filtros rígidos (pares, primos, Fibonacci, repetidas do último sorteio), pontuação e seleção diversificada |
+| Cobertura combinatória | `/fechamentos/cobertura-combinatoria` | Página educativa sobre fechamentos e cobertura |
+| Auditoria consolidada | `/fechamentos/auditoria-consolidada` | Auditoria de cobertura exata ou Monte Carlo, executada em fila (job) |
+| Análises | `/dashboard/analises-lotofacil`, `.../comparativo` | Frequência, atraso, ciclos, temperatura por concurso (janela móvel de 20 concursos) |
+| Simulações | `/simulacoes` | Simulação Monte Carlo e backtesting histórico de fechamentos |
+| Financeiro | `/financeiro` | Custo × prêmio por concurso, ROI, por fechamento e por aposta |
+| Sorteios | `/sorteios` | CRUD da série histórica (dezenas, ganhadores e rateios) |
+| Configurações | `/configuracoes` | Preços das apostas (15 a 20 dezenas) e prêmios fixos por usuário |
+| Conta | `/profile` | Perfil, senha, conexões entre usuários (código de compartilhamento) |
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+### Métodos de fechamento
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+Implementados como *strategy* em `app/Services/Betting/Generators`, orquestrados por `ClosingGenerator`:
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+- **integral**: todas as combinações C(m,15) do grupo-base
+- **reduced**: fechamento reduzido por heurística gulosa de *set covering* (`SetCoveringService`, até 23 dezenas)
+- **wheel**: sistema de roda com dezenas fixas e variáveis
+- **random**: apostas aleatórias dentro do grupo-base
+- **balanced**: geração equilibrada (pares/ímpares, moldura/centro, repetidas do último concurso, ciclo e atraso)
 
-## Agentic Development
+Combinações de 15 dezenas que já saíram em concursos anteriores são descartadas automaticamente.
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+### Ciclo de vida de um fechamento
+
+`draft` → `processing` → `completed` → `placed` (concurso e data informados) → `checked` (conferido contra o resultado). Em caso de erro, `failed`. Fechamentos podem ser compartilhados com usuários conectados (bolão).
+
+## Instalação
+
+### Local (SQLite)
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer setup          # install, .env, key:generate, migrate, npm install, npm run build
+php artisan db:seed     # usuário inicial de desenvolvimento
+php artisan db:seed --class=HistoricalResultSeeder   # série histórica (database/seeders/historical_results.json)
+composer dev            # server + queue:listen + pail + vite
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+O worker de fila (`queue:listen`, já incluído em `composer dev`) é necessário para a auditoria consolidada.
 
-## Contributing
+### Docker (desenvolvimento)
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+`docker-compose.yml` sobe PHP-FPM 8.3, Nginx (porta 8000), MariaDB 11, Redis 7 e Vite.
 
-## Code of Conduct
+### Produção
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+`Dockerfile.prod` + `docker-compose.prod.yml`. O entrypoint (`docker/entrypoint.prod.sh`) roda as migrations e gera os caches. Detalhes em [`docs/docker-prod.md`](docs/docker-prod.md).
 
-## Security Vulnerabilities
+## Comandos Artisan
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+php artisan app:import-historical-results docs/Lotofácil.xlsx   # importa a série histórica da planilha da Caixa
+php artisan lotofacil:calculate-scores                          # recalcula score e ciclo dos resultados históricos
+php artisan users:generate-share-codes                          # gera códigos de compartilhamento faltantes
+```
 
-## License
+## Testes
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+php artisan test --compact
+php artisan test --compact --filter=NomeDoTeste
+vendor/bin/pint --dirty     # formatação
+```
+
+## Documentação
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| [`docs/prompt_base.MD`](docs/prompt_base.MD) | Especificação mestre: definições matemáticas e os 30 itens/módulos do sistema |
+| [`docs/metodos_matematicos.md`](docs/metodos_matematicos.md) | Fundamentação: hipergeométrica, fechamentos, cobertura, set covering, metaheurísticas |
+| [`docs/prompt_4_fase.md`](docs/prompt_4_fase.md) | Roteiro original em etapas (fase inicial do projeto) |
+| [`docs/actual_status.md`](docs/actual_status.md) | Snapshot de status de agosto/2026 (desatualizado) |
+| [`docs/docker-prod.md`](docs/docker-prod.md) | Receita do ambiente Docker de produção |
+| [`docs/development_prompts/`](docs/development_prompts/) | Planos e walkthroughs de cada feature implementada |

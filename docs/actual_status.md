@@ -1,119 +1,130 @@
 # Status Atual do Projeto Loterias
 
-Este documento apresenta uma avaliação detalhada do que já foi implementado no projeto "Sistema Loterias" e o que ainda falta ser desenvolvido, com base na arquitetura, nos documentos de referência matemática, nos prompts base e nas novas diretrizes e features solicitadas.
+**Última atualização:** 25/11/2026 (referência: commit `1faa61a`, de 22/09/2026)
 
-## 1. Avaliação do que já foi implementado
-
-A infraestrutura básica e de persistência do domínio principal já foram estabelecidas. O foco tem sido construir uma fundação sólida para a geração e gestão de apostas e fechamentos.
-
-### 1.1 Modelos, Migrations e Factories Desenvolvidos
-
-A base de dados foi modelada para suportar a arquitetura sugerida na Fase 1 e 2 do projeto.
-
-**Migrations:**
-- `0001_01_01_000000_create_users_table.php` (Tabela de usuários)
-- `2026_08_11_184635_create_bets_table.php` (Tabela de apostas)
-- `2026_08_11_194049_create_closings_table.php` (Tabela de fechamentos)
-- `2026_08_11_195912_add_closing_id_to_bets_table.php` (Relacionamento entre apostas e fechamentos)
-- Migrations auxiliares (`create_cache_table`, `create_jobs_table`)
-
-**Models:**
-- `app/Models/User.php`
-- `app/Models/Bet.php` (Com casts para os arrays de dezenas)
-- `app/Models/Closing.php` (Com casts para arrays e JSON parameters)
-
-**Factories:**
-- `database/factories/UserFactory.php`
-- `database/factories/BetFactory.php`
-- `database/factories/ClosingFactory.php`
-
-### 1.2 Estrutura de Geração de Fechamentos (Services)
-
-O sistema de geração foi arquitetado com base no padrão *Strategy*, definindo contratos claros para cada tipo de gerador de apostas, cumprindo com a separação de responsabilidades recomendada:
-
-- `app/Services/Betting/Generators/BetGeneratorInterface.php`: Define o contrato para os geradores, exigindo métodos como `validate` e `generate`.
-- `app/Services/Betting/ClosingGenerator.php`: Orquestrador responsável por receber um objeto `Closing` e decidir qual gerador utilizar, gerenciando também a persistência.
-
-**Geradores Implementados:**
-- `IntegralBetGenerator.php`: Geração do fechamento integral combinatório $C(n,k)$.
-- `ReducedBetGenerator.php`: Geração inicial para fechamentos reduzidos, com implementação simplificada usando combinatória.
-- `RandomBetGenerator.php`: Geração de apostas aleatórias válidas dentro de um escopo.
-- `WheelBetGenerator.php`: Implementação de Sistema de Roda com dezenas fixas e variáveis.
-- `BalancedBetGenerator.php`: Geração balanceada usando heurísticas de pares/ímpares, somas, primos, etc.
-
-*Metodologia Utilizada:* A geração utiliza a biblioteca `phpexperts/combinatorics` para iteradores em memória (Generators PHP), garantindo que grandes volumes de combinações não estourem a memória RAM do servidor.
-
-### 1.3 Requests e Validações
-
-O projeto já utiliza as convenções do Laravel com *Form Requests* para garantir a integridade dos dados na entrada:
-- `app/Http/Requests/StoreBetRequest.php`
-- `app/Http/Requests/StoreClosingRequest.php`
-
-### 1.4 Frontend e UI (Livewire/Blade Volt)
-
-Telas para o gerenciamento de fechamentos já foram criadas:
-- `resources/views/livewire/pages/closings/create.blade.php`: Componente de criação.
-- `resources/views/livewire/pages/closings/index.blade.php`: Listagem dos fechamentos.
-- `resources/views/livewire/pages/closings/show.blade.php`: Visualização detalhada.
+Este documento compara o que está implementado no código com a especificação mestre ([`prompt_base.MD`](prompt_base.MD)) e lista o que ainda falta. O roteiro original em etapas ([`prompt_4_fase.md`](prompt_4_fase.md)) está superado e serve apenas como registro histórico.
 
 ---
 
-## 2. Quadro de Acompanhamento (Desenvolvido vs Pendente)
+## 1. Visão geral
 
-| Módulo/Funcionalidade | Status | Observação |
-| :--- | :---: | :--- |
-| **Persistência Básica (Models, Migrations, Factories)** | Concluído | Relacionamentos básicos criados. |
-| **Serviços de Geradores de Fechamento** | Concluído | Algoritmos básicos integrados. |
-| **Integração Livewire (Telas de Fechamento)** | Concluído | Criação, listagem e exibição implementados. |
-| **Validação Dinâmica de Parâmetros (Form Requests)** | Concluído | Regras definidas para diferentes métodos de fechamento. |
-| **Edição de Fechamentos Salvos** | Pendente | Permitir alterar parâmetros após criado (qtde jogos, ímpares, etc). |
-| **Módulo Histórico de Sorteios via CSV** | Pendente | Importação e tabela `historical_results` para série histórica via CSV. |
-| **Estatísticas e Análise Histórica** | Pendente | Repetição de combinações, sequências e números isolados em toda a série. |
-| **Filtro de Dezenas Baseado em Resultados** | Pendente | Sugerir/filtrar dezenas no grupo base a partir dos últimos sorteios. |
-| **Efetivação de Apostas e Sorteios** | Pendente | Marcar fechamento/aposta como "efetivado" e vincular ao número do concurso/sorteio. |
-| **Sistema de Conferência de Apostas** | Pendente | Algoritmo que cruza resultados do concurso efetivado com as apostas cadastradas e os prêmios. |
-| **Custo das Apostas e Premiações (Config)** | Pendente | Campo para definir valor da aposta, premiação fixa e calcular o custo total do fechamento. |
-| **Novos Itens de Menu / Páginas** | Pendente | Menus: "Cálculos matemáticos", "Cobertura combinatória", "Otimização" e "Simulações". |
-| **Simulações e Análise de Cobertura** | Pendente | Cálculos hipergeométricos e cobertura combinatória (Módulo 5). |
-| **Otimização Avançada (Set Covering / Heurísticas)** | Pendente | Refatorar gerador reduzido, implementar busca gulosa, algoritmos de otimização. |
+- **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local, MariaDB no Docker e em produção.
+- **Testes:** 116 testes PHPUnit (2.350 asserções), todos passando.
+- **Histórico de desenvolvimento:** 40 commits entre 12/08/2026 e 22/09/2026. Planos e walkthroughs das features mais recentes estão em [`development_prompts/`](development_prompts/).
 
----
+### 1.1 Modelo de dados
 
-## 3. Lista de Tarefas a Executar (Próximos Passos)
+| Tabela / Model | Papel |
+| --- | --- |
+| `users` / `User` | Usuários, com `share_code` para conexões |
+| `bets` / `Bet` | Apostas (dezenas em JSON), avulsas ou ligadas a um fechamento via `closing_id`; status, concurso e acertos |
+| `closings` / `Closing` | Fechamentos: método, grupo-base, parâmetros (JSON), `planned_bets`, status, concurso e data do sorteio |
+| `historical_results` / `HistoricalResult` | Série histórica: dezenas, hash único da combinação, ganhadores e rateios, score e número do ciclo |
+| `lotofacil_settings` / `LotofacilSetting` | Preços por tamanho de aposta e prêmios fixos, por usuário |
+| `consolidated_audits` / `ConsolidatedAudit` | Resultados das auditorias de cobertura processadas em fila |
+| `connections` / `Connection` | Conexões (amizade) entre usuários |
+| `closing_user`, `bet_user` | Compartilhamento de fechamentos e apostas (bolão) |
 
-Com base nas definições atuais, a seguinte ordem de execução é sugerida para cobrir as funcionalidades pendentes:
+> Diferente do previsto em `prompt_4_fase.md`, não existe a tabela pivô `closing_bet`: cada aposta pertence a no máximo um fechamento.
 
-### Fase 1: Histórico, Estatísticas e Filtragem
-- [ ] Criar a tabela (Migration) e Model `HistoricalResult` para armazenar o histórico de resultados.
-- [ ] Implementar comando/interface para a importação de arquivos CSV com os resultados históricos.
-- [ ] Desenvolver a camada de serviço de estatística:
-  - Analisar repetição de números isolados em todas as séries.
-  - Analisar quantas sequências e quais combinações já se repetiram na série histórica.
-- [ ] Adicionar na UI de criação de fechamentos a opção de usar os últimos resultados como base (ex: "repetir 10 números do sorteio anterior").
+### 1.2 Ciclo de vida do fechamento
 
-### Fase 2: Gestão de Fechamentos e Custos
-- [ ] Adicionar configuração de custos: definir valor unitário de apostas e prêmios fixos, e calcular o custo total de um fechamento.
-- [ ] Adicionar a funcionalidade de editar um fechamento salvo (ajustar parâmetros de geração como qtde. de ímpares, total de jogos, etc).
+`draft` → `processing` → `completed` → `placed` (concurso e data informados) → `checked` (conferido contra o resultado). Em caso de erro, `failed`.
 
-### Fase 3: Efetivação e Conferência
-- [ ] Adicionar campos em `bets` / `closings` para registrar efetivação (ex: booleano `is_effective`) e número do concurso apostado.
-- [ ] Implementar o módulo/Sistema de Conferência de Apostas que compara o histórico (concurso) com as apostas efetivadas, demonstrando os prêmios (acertos).
-
-### Fase 4: Otimização, Matemática e Estrutura de Menu
-- [ ] Implementar os novos itens de menu na UI principal:
-  - Cálculos matemáticos
-  - Cobertura combinatória
-  - Otimização
-  - Simulações
-- [ ] Desenvolver o analisador de cobertura (Coverage Combinatória e Simulações).
-- [ ] Iniciar a implementação das ferramentas de Otimização no gerador reduzido (Set Covering, Busca Gulosa, etc).
+- Fechamentos `completed` podem ser editados. Salvar apaga as apostas e volta o fechamento para `draft`.
+- Ações disponíveis: refazer apostas, excluir apostas individualmente ou em lote (com renumeração), completar apostas faltantes até `planned_bets` e alertar dezenas do grupo-base sem cobertura.
+- Apostas e fechamentos `placed`/`checked` ficam bloqueados para edição e exclusão.
 
 ---
 
-## 4. Sugestões de Implementação e Melhorias de Desempenho
+## 2. Cobertura da especificação (`prompt_base.MD`)
 
-1. **Geração Assíncrona via Jobs/Filas:** Para fechamentos integrais com muitas dezenas (ex: 20 dezenas geram 15.504 apostas), a requisição web pode sofrer timeout. O método `generate` no `ClosingGenerator` deve disparar *Jobs* para gerar as apostas de forma assíncrona.
+Legenda: ✅ implementado · 🟡 parcial · ❌ não implementado
 
-2. **Otimização do ReducedBetGenerator:** O fechamento reduzido verdadeiro (Set Covering) é custoso e matematicamente complexo. Começar utilizando abordagens heurísticas (ex. "Gulosa") evitará travamentos do servidor e proverá um MVP muito mais rápido.
+| Item | Tema | Status | Onde / Observação |
+| ---: | --- | :---: | --- |
+| 1 | Validação de dezenas, apostas e parâmetros | 🟡 | `StoreBetRequest`, `StoreClosingRequest`, `validate()` dos geradores e `ClosingGenerator`. Não há validação de semente, pois sementes não existem. |
+| 2 | Geração e enumeração de combinações | ✅ | `Betting/Math/Combinatorics` e `phpexperts/combinatorics`, sob demanda (PHP Generators) |
+| 3 | Probabilidade hipergeométrica de aposta simples | ❌ | Não há módulo de cálculo; a página educativa é apenas texto |
+| 4 | Apostas equivalentes C(m,15) e custo | 🟡 | `LotteryPrizeCalculatorService::getBetCost()` cobre o custo por tamanho; não há módulo explicativo |
+| 5 | Fechamento integral | ✅ | `IntegralBetGenerator` |
+| 6 | Interseção grupo-base × sorteio | ✅ | Conferência e `checkBaseNumbersCoverage()` |
+| 7 | Fechamento reduzido | ✅ | `ReducedBetGenerator` + `SetCoveringService` (heurística gulosa, limite de 23 dezenas) |
+| 8 | Modelo de cobertura combinatória | 🟡 | Cenários = subconjuntos do grupo-base; não há pesos por cenário |
+| 9 | Set covering (mínimo e por orçamento) | 🟡 | Apenas heurística gulosa com `budget`; sem solução exata |
+| 10 | Programação inteira | ❌ | — |
+| 11 | Heurística gulosa | ✅ | `SetCoveringService` |
+| 12 | Busca local | ❌ | — |
+| 13 | Simulated annealing | ❌ | — |
+| 14 | Algoritmo genético | ❌ | — |
+| 15 | Programação por restrições | 🟡 | `OptimizerService` aplica filtros rígidos (pares, primos, Fibonacci, repetidas) e limite de interseção entre apostas, mas sem solver |
+| 16 | Sistemas de roda | 🟡 | `WheelBetGenerator` (fixas + variáveis); não calcula cobertura de pares e trincas |
+| 17 | Pares/ímpares e faixas numéricas | ✅ | `BalancedBetGenerator`, `OptimizerService`, `BetScoringService` |
+| 18 | Estatísticas históricas | ✅ | `LotofacilStatisticsService`: frequência, atraso, ciclos, temperatura contextual por concurso, repetição, score |
+| 19 | Geração ponderada / filtros heurísticos | 🟡 | Pontuação no `BalancedBetGenerator` e no `SmartRandomBetService`; não há pesos configuráveis pelo usuário |
+| 20 | Cálculo exato de cobertura | 🟡 | `CoverageAuditorService::auditCoverage()` é exato **dentro do grupo-base**; não enumera os 3.268.760 sorteios |
+| 21 | Garantia condicional | 🟡 | A auditoria reporta a condição ("garante X se acertar Y no grupo-base"); não há verificador genérico de condições |
+| 22 | Probabilidade de pelo menos uma premiação | 🟡 | Estimada por Monte Carlo; não há cálculo exato |
+| 23 | Simulação de sorteios | ✅ | `MonteCarloSimulationService` + backtesting histórico em `/simulacoes`; **sem semente e sem intervalo de confiança** |
+| 24 | Comparação de algoritmos | ❌ | — |
+| 25 | Custo e orçamento | ✅ | Configuração por usuário, custo do fechamento, `/financeiro` (ROI por concurso, fechamento e aposta) |
+| 26 | Relatórios e transparência | 🟡 | Relatório estatístico do grupo-base, auditoria e impressão; não há relatório unificado do fechamento |
+| 27 | Testes | ✅ | 116 testes (Feature e Unit) |
+| 28 | Desempenho | 🟡 | Geração sob demanda e bitmasks na auditoria; a geração de fechamentos roda de forma síncrona, sem progresso nem cancelamento |
+| 29 | Classificação Exato / Heurístico / Simulado | ❌ | Não aparece de forma sistemática na interface |
+| 30 | Regras de comunicação | 🟡 | Há avisos pontuais; temperatura, ciclo e atraso precisam ser rotulados sempre como heurísticas |
 
-3. **Componentização Blade/Volt:** Algumas lógicas de validação e front-end no `create.blade.php` estão extensas. Sugere-se extrair partes da UI em componentes anônimos menores.
+**Requisito transversal 3.11 (determinismo por semente aleatória):** ❌ Nenhum gerador, simulador ou otimizador aceita semente, então os resultados não são reproduzíveis.
+
+---
+
+## 3. Funcionalidades além da especificação
+
+- Conferência de apostas e fechamentos efetivados (`placed` → `checked`) com cálculo de prêmios.
+- Importação da série histórica da planilha da Caixa (`app:import-historical-results`) e CRUD de sorteios.
+- Cálculo de score e ciclo dos concursos (`lotofacil:calculate-scores`).
+- Dashboard de análises e comparativo de concursos com temperatura contextual (janela móvel de 20 concursos).
+- Sugestão de grupo-base por análise estatística, com relatório dos critérios.
+- Conexões entre usuários e compartilhamento de fechamentos e apostas (bolão).
+- Impressão de fechamentos.
+- Ambiente Docker de desenvolvimento e de produção ([`docker-prod.md`](docker-prod.md)).
+
+---
+
+## 4. Pontos de atenção
+
+1. **Série histórica sem controle de acesso:** qualquer usuário autenticado pode criar, editar e excluir sorteios em `/sorteios`. Como os dados são globais, isso afeta a conferência, as estatísticas e o financeiro de todos. Falta um papel de administrador.
+2. **Autorização espalhada:** não há Policies; as verificações de dono e compartilhamento ficam no `mount()` de cada página Volt.
+3. **Geração síncrona:** fechamentos grandes (integral com 20 ou mais dezenas = 15.504 ou mais apostas) rodam na requisição web e podem estourar o timeout. Só a auditoria consolidada usa fila.
+4. **Seeder:** o `DatabaseSeeder` cria apenas o usuário de desenvolvimento; a série histórica exige `php artisan db:seed --class=HistoricalResultSeeder`.
+5. **Arquivos soltos:** `parse_xlsx.py` na raiz parece sobra de desenvolvimento; `prompt_base.MD` termina com um resto de colagem ("Mensagem para o Agente / Adicionar / Ferramentas").
+
+---
+
+## 5. Próximos passos sugeridos
+
+Em ordem de prioridade:
+
+1. **Segurança e consistência**
+   - [ ] Restringir o CRUD de sorteios a administradores.
+   - [ ] Criar Policies para `Closing`, `Bet` e `HistoricalResult`.
+2. **Reprodutibilidade e transparência** (Itens 3.11, 26, 29 e 30)
+   - [ ] Aceitar e persistir semente aleatória em geradores, otimizador e simulações.
+   - [ ] Rotular cada resultado como Exato, Ótimo comprovado, Viável, Heurístico ou Simulado.
+   - [ ] Adicionar intervalo de confiança de 95% ao Monte Carlo.
+   - [ ] Criar um relatório de transparência do fechamento (método, parâmetros, semente, cobertura, garantias e limitações).
+3. **Cálculos matemáticos** (Itens 3, 4 e 22)
+   - [ ] Criar um módulo hipergeométrico (P(X=k), P(X≥11), "1 em N").
+   - [ ] Calcular apostas equivalentes C(m,15) com custo.
+   - [ ] Calcular exatamente a probabilidade de pelo menos uma premiação em um conjunto de apostas.
+4. **Desempenho** (Item 28)
+   - [ ] Mover a geração de fechamentos grandes para jobs, com progresso e cancelamento.
+5. **Otimização avançada** (Itens 12 a 14 e 24)
+   - [ ] Busca local sobre a solução gulosa.
+   - [ ] Simulated annealing.
+   - [ ] Algoritmo genético.
+   - [ ] Módulo de comparação entre métodos (mesmo grupo-base, orçamento e semente).
+6. **Rodas e cobertura** (Itens 8, 16 e 20)
+   - [ ] Calcular cobertura de pares e trincas nas rodas.
+   - [ ] Pesos por cenário.
+   - [ ] Auditoria exata sobre o universo completo de sorteios.

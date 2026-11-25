@@ -1,3 +1,32 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+"Sistema Loterias": a Laravel 13 / PHP 8.3 app (Livewire 3 + Volt, Tailwind 4, Vite) for managing Lotofácil (Brazilian lottery) bets, "fechamentos" (combinatorial wheels/closings), historical results, statistics and financial/Monte Carlo analysis. UI and domain terms are in Portuguese (routes: `apostas`, `fechamentos`, `sorteios`, `configuracoes`). Math background lives in `docs/metodos_matematicos.md`; `docs/actual_status.md` is an (outdated) progress snapshot.
+
+## Commands
+
+- `composer setup` – install, create `.env`, key, migrate, build assets.
+- `composer dev` – runs `artisan serve`, `queue:listen`, `pail` and `vite` together (the queue worker is required for consolidated audits).
+- `composer test` (or `php artisan test --compact`); single test: `php artisan test --compact --filter=testName` or pass a file path. Tests use SQLite, `QUEUE_CONNECTION=sync`, array cache (see `phpunit.xml`).
+- `vendor/bin/pint --dirty --format agent` – format before finishing.
+- `npm run build` / `npm run dev` – frontend assets.
+- Custom commands: `app:import-historical-results {file}` (imports from the XLSX in `docs/`), `lotofacil:calculate-scores`, `users:generate-share-codes`.
+- Dev uses SQLite by default (`.env.example`); `docker-compose.yml` (MariaDB + Redis + nginx on :8000) and `Dockerfile.prod` / `docker/entrypoint.prod.sh` (runs migrate + config/route/view cache; custom commands supported) are the Docker paths. See `docs/docker-prod.md`.
+
+## Architecture
+
+- **UI layer is two styles side by side**: full-page class Livewire components in `app/Livewire/` (dashboard, `Lotofacil*` analysis/statistics/suggestion pages) and Volt single-file pages under `resources/views/livewire/pages/{bets,closings,results,settings,financial,simulations,auth}`. Volt pages are routed with `Volt::route(...)` in `routes/web.php`; there are almost no controllers. Check which style a feature uses before editing.
+- **Business logic lives in `app/Services/`**, not in components or models:
+  - `Betting/ClosingGenerator` orchestrates closing generation: validates, resolves a generator from its static `$generators` map (strategy pattern, `Betting/Generators/*` implementing `BetGeneratorInterface`: integral, random, balanced, wheel, reduced), and persists bets inside a DB transaction, streaming combinations from PHP generators (via `phpexperts/combinatorics` / `Betting/Math/Combinatorics`) to keep memory flat. 15-number combinations already drawn historically are skipped using `HistoricalResult::generateDrawnNumbersHash`. Adding a method = new generator class + entry in that map.
+  - `Betting/OptimizerService`, `SetCoveringService`, `CoverageAuditorService` – optimization/coverage auditing of closings; heavy audits run via `Jobs/GenerateConsolidatedAuditJob` (1h timeout) and persist to `ConsolidatedAudit`.
+  - `LotofacilStatisticsService`, `HistoricalResultService`, `BetScoringService`, `SmartRandomBetService`, `FinancialAnalysisService`, `LotteryPrizeCalculatorService`, `MonteCarloSimulationService`, `LotofacilSettingService` (per-user settings in `LotofacilSetting`).
+- **Models**: `Bet` and `Closing` store number sets as array/JSON casts; `Closing->method`/`status` (`processing`, ...) drive the generation flow. `Connection` links users (friend connections); users have a share code (backfilled by `users:generate-share-codes`) used to share closings/results between connected users.
+- All app routes except auth are behind `auth` middleware; auth routes in `routes/auth.php` (Breeze).
+- Tests: PHPUnit only (no Pest); feature tests under `tests/Feature` (incl. `Livewire/`, `Pages/`, `Services/`), unit tests under `tests/Unit/Services`.
+
 <laravel-boost-guidelines>
 === foundation rules ===
 
