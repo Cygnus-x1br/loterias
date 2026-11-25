@@ -56,6 +56,8 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
     public ?int $min_cold = null;
     public ?int $max_cold = null;
 
+    public bool $spread_bets = false;
+
     // Parâmetros para sistema de roda
     public array $fixed_numbers = [];
     public array $variable_numbers = [];
@@ -118,6 +120,7 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                 $this->min_score = isset($params['score_range'][0]) ? (int) $params['score_range'][0] : null;
                 $this->max_score = isset($params['score_range'][1]) ? (int) $params['score_range'][1] : null;
             }
+            $this->spread_bets = (bool) ($params['spread_bets'] ?? false);
             if (isset($params['temperature_distribution']) && is_array($params['temperature_distribution'])) {
                 $temp = $params['temperature_distribution'];
                 if (isset($temp['hot']) && is_array($temp['hot'])) {
@@ -646,6 +649,9 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                 }
                 if (! empty($tempDist)) {
                     $parameters['temperature_distribution'] = $tempDist;
+                }
+                if ($this->spread_bets) {
+                    $parameters['spread_bets'] = true;
                 }
                 if (empty($parameters)) {
                     $parameters = null;
@@ -1411,6 +1417,25 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                             @enderror
                         </div>
 
+                        {{-- Distribuir apostas --}}
+                        <div class="pt-2 border-t border-indigo-100">
+                            <label for="spread_bets" class="flex items-start gap-3">
+                                <input
+                                    id="spread_bets"
+                                    type="checkbox"
+                                    wire:model="spread_bets"
+                                    class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                >
+                                <span>
+                                    <span class="block text-sm font-semibold text-slate-700">Distribuir apostas (mínima sobreposição)</span>
+                                    <span class="mt-1 block text-xs text-slate-500">
+                                        Entre as combinações que atendem aos filtros, escolhe as que têm menos dezenas em comum com as apostas já geradas.
+                                        Aumenta a chance de pelo menos uma aposta premiar, sem mudar o custo. Grupos-base maiores deixam as apostas mais espalhadas.
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+
                         {{-- Distribuição de Temperatura --}}
                         <div class="pt-2 border-t border-indigo-100 space-y-3">
                             <div>
@@ -1418,7 +1443,7 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                                     Distribuição de Temperatura Recente
                                 </h4>
                                 <p class="mt-1 text-xs text-slate-500">
-                                    Defina a quantidade de dezenas Quentes, Neutras e Frias por aposta (baseado nos últimos 20 concursos).
+                                    Defina a quantidade de dezenas Quentes, Neutras e Frias por aposta, pela frequência nos últimos 20 concursos. A classificação é descritiva: dezenas quentes não têm mais chance de sair.
                                 </p>
                             </div>
 

@@ -8,6 +8,9 @@ use App\Models\HistoricalResult;
 use App\Models\User;
 use App\Services\BetScoringService;
 use App\Services\Betting\ClosingGenerator;
+use App\Services\Betting\ClosingProbabilityService;
+use App\Services\Betting\Generators\BalancedBetGenerator;
+use App\Services\Betting\HistoricalDrawFilter;
 use App\Services\LotofacilStatisticsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use InvalidArgumentException;
@@ -652,5 +655,80 @@ class BalancedBetGeneratorTest extends TestCase
             $total = array_sum(array_map(fn (int $k): float => $service->repetitionProbability($k, $betSize), range(0, 15)));
             $this->assertEqualsWithDelta(1.0, $total, 1e-9, "Aposta de {$betSize} dezenas");
         }
+    }
+
+    public function test_spread_bets_picks_the_candidate_with_least_overlap(): void
+    {
+        $generator = new class(app(HistoricalDrawFilter::class)) extends BalancedBetGenerator
+        {
+            public function pick(array $candidates, array $selected): array
+            {
+                return $this->leastOverlappingCandidate($candidates, $selected);
+            }
+        };
+
+        $selected = [range(1, 15)];
+        $candidate = fn (array $numbers, ?string $relaxed = null): array => ['numbers' => $numbers, 'relaxed_filter' => $relaxed, 'tolerance' => $relaxed ? 1 : 0];
+
+        $candidates = [
+            'a' => $candidate(range(2, 16)),                                                  // 14 em comum
+            'b' => $candidate([1, 2, 3, 4, 5, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]),      // 5 em comum
+            'c' => $candidate([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 21, 22, 23, 24, 25]),          // 10 em comum
+        ];
+        $this->assertSame($candidates['b']['numbers'], $generator->pick($candidates, $selected)['numbers']);
+
+        // Uma candidata dentro da faixa original vence uma relaxada, mesmo com mais sobreposição
+        $candidates['b']['relaxed_filter'] = 'Equilíbrio Par/Ímpar';
+        $this->assertSame($candidates['c']['numbers'], $generator->pick($candidates, $selected)['numbers']);
+    }
+
+    public function test_spread_bets_respects_filters_and_spreads_bets(): void
+    {
+        $user = User::factory()->create();
+        $probability = app(ClosingProbabilityService::class);
+        $overlaps = [];
+
+        foreach (range(1, 3) as $run) {
+            $closing = Closing::factory()->create([
+                'user_id' => $user->id,
+                'method' => 'balanced',
+                'base_numbers' => range(1, 21),
+                'bet_size' => 15,
+                'planned_bets' => 10,
+                'parameters' => ['even_odd_balance' => [6, 9], 'spread_bets' => true],
+            ]);
+
+            app(ClosingGenerator::class)->generate($closing);
+            $bets = Bet::where('closing_id', $closing->id)->pluck('numbers')->all();
+
+            $this->assertCount(10, $bets);
+            $this->assertNull($closing->refresh()->generation_warnings);
+            foreach ($bets as $numbers) {
+                $evens = count(array_filter($numbers, fn (int $n): bool => $n % 2 === 0));
+                $this->assertTrue($evens >= 6 && $evens <= 9);
+            }
+
+            $overlaps[] = $probability->averageOverlap($bets);
+        }
+
+        // Apostas sorteadas ao acaso de uma base de 21 têm em média 15·15/21 ≈ 10,71 dezenas em comum
+        $this->assertLessThan(15 * 15 / 21, array_sum($overlaps) / count($overlaps));
+    }
+
+    public function test_rejects_non_boolean_spread_bets(): void
+    {
+        $closing = Closing::factory()->create([
+            'user_id' => User::factory()->create()->id,
+            'method' => 'balanced',
+            'base_numbers' => range(1, 21),
+            'bet_size' => 15,
+            'planned_bets' => 5,
+            'parameters' => ['spread_bets' => 'sim'],
+        ]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('spread_bets');
+
+        app(BalancedBetGenerator::class)->validate($closing);
     }
 }

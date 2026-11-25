@@ -25,6 +25,11 @@ class BalancedBetGenerator implements BetGeneratorInterface
      */
     protected const FIBONACCI = [1, 2, 3, 5, 8, 13, 21];
 
+    /**
+     * Quantas combinações válidas são comparadas, por aposta, quando spread_bets está ativo.
+     */
+    protected const SPREAD_CANDIDATES = 25;
+
     public function __construct(
         protected HistoricalDrawFilter $historicalDrawFilter
     ) {}
@@ -43,6 +48,10 @@ class BalancedBetGenerator implements BetGeneratorInterface
             throw new InvalidArgumentException(
                 'A quantidade planejada de apostas é obrigatória para o método equilibrado.'
             );
+        }
+
+        if (isset($parameters['spread_bets']) && ! is_bool($parameters['spread_bets'])) {
+            throw new InvalidArgumentException('A opção de distribuir as apostas (spread_bets) deve ser verdadeira ou falsa.');
         }
 
         // Validação de Equilíbrio Par/Ímpar
@@ -140,6 +149,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
         $betSize = $closing->bet_size;
         $plannedBets = $closing->planned_bets;
         $parameters = $closing->parameters ?? [];
+        $spreadBets = (bool) ($parameters['spread_bets'] ?? false);
 
         if (empty($baseNumbers)) {
             throw new LogicException('O grupo-base não pode estar vazio.');
@@ -255,8 +265,16 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $betFound = false;
             $attempts = 0;
 
+            // Combinações válidas encontradas para esta aposta (só mais de uma quando spread_bets está ativo)
+            $candidates = [];
+
             // Tolerância dinâmica: a cada 500 tentativas, relaxamos um pouco as regras
             while ($attempts < $maxAttemptsPerBet) {
+                // Com candidatas dentro da faixa original, não vale relaxar os filtros só para ter mais opções
+                if ($spreadBets && $candidates !== [] && $attempts >= 500) {
+                    break;
+                }
+
                 $tolerance = intdiv($attempts, 500);
 
                 if ($targetRepetitions !== null && ! empty($lastDrawnNumbers)) {
@@ -266,40 +284,57 @@ class BalancedBetGenerator implements BetGeneratorInterface
                 }
 
                 sort($currentBet);
+                $betKey = implode('-', $currentBet);
 
-                if (! in_array($currentBet, $uniqueBets, true)) {
+                if (! in_array($currentBet, $uniqueBets, true) && ! isset($candidates[$betKey])) {
                     $failedReason = null;
                     if ($this->historicalDrawFilter->isPastDraw($currentBet)) {
                         $rejectionStats['Combinação já sorteada em concurso anterior'] = ($rejectionStats['Combinação já sorteada em concurso anterior'] ?? 0) + 1;
                     } elseif ($this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures, $tolerance, $failedReason)) {
                         $strictReason = null;
-                        if ($tolerance > 0 && ! $this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures, 0, $strictReason)) {
-                            $betNotes[implode('-', $currentBet)] = sprintf(
-                                'Filtro relaxado (tolerância de ±%d): %s fora da faixa pedida.',
-                                $tolerance,
-                                $strictReason
-                            );
-                            $relaxedByFilter[$strictReason] = ($relaxedByFilter[$strictReason] ?? 0) + 1;
-                        }
+                        $isRelaxed = $tolerance > 0
+                            && ! $this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures, 0, $strictReason);
 
-                        yield $currentBet;
-                        $uniqueBets[] = $currentBet;
-                        $generatedCount++;
+                        $candidates[$betKey] = [
+                            'numbers' => $currentBet,
+                            'relaxed_filter' => $isRelaxed ? $strictReason : null,
+                            'tolerance' => $tolerance,
+                        ];
 
-                        // Atualiza o uso para balancear próximas apostas
-                        foreach ($currentBet as $num) {
-                            $usageCount[$num]++;
+                        if (! $spreadBets || count($candidates) >= self::SPREAD_CANDIDATES) {
+                            break;
                         }
-
-                        $betFound = true;
-                        break;
-                    } else {
-                        if ($failedReason) {
-                            $rejectionStats[$failedReason] = ($rejectionStats[$failedReason] ?? 0) + 1;
-                        }
+                    } elseif ($failedReason) {
+                        $rejectionStats[$failedReason] = ($rejectionStats[$failedReason] ?? 0) + 1;
                     }
                 }
                 $attempts++;
+            }
+
+            if ($candidates !== []) {
+                $chosen = $spreadBets
+                    ? $this->leastOverlappingCandidate($candidates, $uniqueBets)
+                    : reset($candidates);
+
+                if ($chosen['relaxed_filter'] !== null) {
+                    $betNotes[implode('-', $chosen['numbers'])] = sprintf(
+                        'Filtro relaxado (tolerância de ±%d): %s fora da faixa pedida.',
+                        $chosen['tolerance'],
+                        $chosen['relaxed_filter']
+                    );
+                    $relaxedByFilter[$chosen['relaxed_filter']] = ($relaxedByFilter[$chosen['relaxed_filter']] ?? 0) + 1;
+                }
+
+                yield $chosen['numbers'];
+                $uniqueBets[] = $chosen['numbers'];
+                $generatedCount++;
+
+                // Atualiza o uso para balancear próximas apostas
+                foreach ($chosen['numbers'] as $num) {
+                    $usageCount[$num]++;
+                }
+
+                $betFound = true;
             }
 
             if (! $betFound) {
@@ -357,6 +392,43 @@ class BalancedBetGenerator implements BetGeneratorInterface
             'bet_notes' => $betNotes,
             'warnings' => $this->buildWarnings($relaxedByFilter, $unfilteredCount, $generatedCount),
         ];
+    }
+
+    /**
+     * Escolhe a candidata com menos dezenas em comum com as apostas já geradas.
+     *
+     * Apostas que se repetem pouco entre si cobrem mais sorteios diferentes: aumenta a chance
+     * de pelo menos uma aposta premiada, sem mudar o número médio de prêmios.
+     * Candidatas dentro da faixa original dos filtros têm prioridade sobre as relaxadas.
+     *
+     * @param  array<string, array{numbers: array<int, int>, relaxed_filter: string|null, tolerance: int}>  $candidates
+     * @param  array<int, array<int, int>>  $selectedBets
+     * @return array{numbers: array<int, int>, relaxed_filter: string|null, tolerance: int}
+     */
+    protected function leastOverlappingCandidate(array $candidates, array $selectedBets): array
+    {
+        $best = null;
+        $bestRank = null;
+
+        foreach ($candidates as $candidate) {
+            $overlaps = array_map(
+                fn (array $bet): int => count(array_intersect($candidate['numbers'], $bet)),
+                $selectedBets
+            );
+
+            $rank = [
+                $candidate['relaxed_filter'] === null ? 0 : 1,
+                array_sum($overlaps),
+                $overlaps === [] ? 0 : max($overlaps),
+            ];
+
+            if ($bestRank === null || $rank < $bestRank) {
+                $best = $candidate;
+                $bestRank = $rank;
+            }
+        }
+
+        return $best;
     }
 
     /**

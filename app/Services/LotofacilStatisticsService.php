@@ -428,7 +428,8 @@ class LotofacilStatisticsService
 
     /**
      * Retorna a classificação de temperatura (quente, neutra, fria) de cada dezena (1 a 25)
-     * baseando-se na amostragem recente de concursos e histórico global.
+     * pela frequência nos últimos $recentContests concursos (ver classifyTemperatures()).
+     * A classificação é descritiva: não altera a chance de uma dezena sair.
      *
      * @param  int  $recentContests  Quantidade de concursos recentes para a análise de momento.
      * @return array<int, array{number: int, temperature: string, recent_count: int, total_count: int, delay: int}>
@@ -473,7 +474,6 @@ class LotofacilStatisticsService
                 }
             }
 
-            // Ordenar por frequência recente (decrescente), desempatando por total global
             $scoredNumbers = [];
             for ($num = 1; $num <= 25; $num++) {
                 $recent = $recentFrequencies[$num] ?? 0;
@@ -488,37 +488,15 @@ class LotofacilStatisticsService
                 ];
             }
 
-            // Calcula o score da temperatura (Frequência recente tem peso 2, Atraso tem peso 1.5)
-            // Desempate será pelo total_count
-            $sorted = $scoredNumbers;
-            uasort($sorted, function ($a, $b) {
-                $scoreA = ($a['recent_count'] * 2) + ($a['delay'] * 1.5);
-                $scoreB = ($b['recent_count'] * 2) + ($b['delay'] * 1.5);
-
-                if ($scoreA === $scoreB) {
-                    return $b['total_count'] <=> $a['total_count'];
-                }
-
-                return $scoreB <=> $scoreA;
-            });
-
-            $sortedKeys = array_keys($sorted);
-
-            // Top 8 são 'hot' (quentes), Últimos 8 são 'cold' (frias), 9 intermediárias são 'neutral' (médias/mornas)
-            $hotKeys = array_slice($sortedKeys, 0, 8);
-            $coldKeys = array_slice($sortedKeys, 17, 8);
+            $temperatures = $this->classifyTemperatures(
+                array_column($scoredNumbers, 'recent_count', 'number'),
+                $delays
+            );
 
             $classification = [];
             for ($num = 1; $num <= 25; $num++) {
-                $temp = 'neutral';
-                if (in_array($num, $hotKeys, true)) {
-                    $temp = 'hot';
-                } elseif (in_array($num, $coldKeys, true)) {
-                    $temp = 'cold';
-                }
-
                 $classification[$num] = array_merge($scoredNumbers[$num], [
-                    'temperature' => $temp,
+                    'temperature' => $temperatures[$num],
                 ]);
             }
 
@@ -708,10 +686,12 @@ class LotofacilStatisticsService
      */
     private function calculatePeriodTemperatures(Collection $results): array
     {
+        $results = $results->sortByDesc('contest_number')->values();
         $totalContests = $results->count();
         $frequencies = array_fill(1, 25, 0);
+        $delays = array_fill(1, 25, $totalContests);
 
-        foreach ($results as $res) {
+        foreach ($results as $index => $res) {
             $numbers = is_array($res->drawn_numbers) ? $res->drawn_numbers : json_decode((string) $res->drawn_numbers, true);
             if (! is_array($numbers)) {
                 continue;
@@ -720,34 +700,59 @@ class LotofacilStatisticsService
                 $numInt = (int) $num;
                 if ($numInt >= 1 && $numInt <= 25) {
                     $frequencies[$numInt]++;
+                    $delays[$numInt] = min($delays[$numInt], $index);
                 }
             }
         }
 
-        $sortedFreqs = $frequencies;
-        sort($sortedFreqs);
-        $count = count($sortedFreqs);
-        $coldThreshold = $sortedFreqs[(int) floor($count * 0.33)] ?? 0;
-        $hotThreshold = $sortedFreqs[(int) floor($count * 0.67)] ?? 0;
+        $temperatures = $this->classifyTemperatures($frequencies, $delays);
 
         $map = [];
         for ($i = 1; $i <= 25; $i++) {
-            $freq = $frequencies[$i];
-            $temp = 'neutral';
-            if ($freq >= $hotThreshold && $freq > 0) {
-                $temp = 'hot';
-            } elseif ($freq <= $coldThreshold) {
-                $temp = 'cold';
-            }
-
             $map[$i] = [
-                'frequency' => $freq,
-                'percentage' => $totalContests > 0 ? round(($freq / $totalContests) * 100, 1) : 0.0,
-                'temperature' => $temp,
+                'frequency' => $frequencies[$i],
+                'percentage' => $totalContests > 0 ? round(($frequencies[$i] / $totalContests) * 100, 1) : 0.0,
+                'temperature' => $temperatures[$i],
             ];
         }
 
         return $map;
+    }
+
+    /**
+     * Regra única de temperatura usada em todo o sistema.
+     *
+     * As 25 dezenas são ordenadas pela frequência no período (mais frequente primeiro);
+     * empates são decididos por quem saiu mais recentemente (menor atraso) e depois pela dezena.
+     * As 8 primeiras são quentes, as 8 últimas frias e as 9 do meio neutras.
+     *
+     * O atraso só desempata: uma dezena atrasada nunca fica "mais quente" por isso.
+     * Na série histórica, quentes, neutras e frias saem com a mesma frequência (≈ 60%),
+     * então a classificação descreve o passado e não prevê o próximo sorteio.
+     *
+     * @param  array<int, int>  $frequencies  Frequência de cada dezena (1 a 25) no período.
+     * @param  array<int, int>  $delays  Concursos desde a última aparição (0 = saiu no mais recente).
+     * @return array<int, string> 'hot', 'neutral' ou 'cold' por dezena.
+     */
+    public function classifyTemperatures(array $frequencies, array $delays): array
+    {
+        $numbers = range(1, 25);
+
+        usort($numbers, fn (int $a, int $b): int => [($frequencies[$b] ?? 0), -($delays[$b] ?? 0), -$b]
+            <=> [($frequencies[$a] ?? 0), -($delays[$a] ?? 0), -$a]);
+
+        $temperatures = [];
+        foreach ($numbers as $position => $number) {
+            $temperatures[$number] = match (true) {
+                $position < 8 => 'hot',
+                $position >= 17 => 'cold',
+                default => 'neutral',
+            };
+        }
+
+        ksort($temperatures);
+
+        return $temperatures;
     }
 
     /**

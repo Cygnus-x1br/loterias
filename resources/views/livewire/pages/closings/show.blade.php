@@ -3,6 +3,7 @@
 use App\Models\Closing;
 use App\Models\HistoricalResult;
 use App\Services\Betting\ClosingGenerator;
+use App\Services\Betting\ClosingProbabilityService;
 use App\Services\LotofacilStatisticsService;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
@@ -569,6 +570,35 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     /**
      * Consulta paginada das apostas vinculadas ao fechamento.
      */
+    public ?string $probabilityError = null;
+
+    /**
+     * Dezenas de todas as apostas do fechamento.
+     *
+     * @return array<int, array<int, int>>
+     */
+    protected function allBetNumbers(): array
+    {
+        return $this->closing->bets()
+            ->pluck('numbers')
+            ->map(fn ($numbers): array => is_array($numbers) ? $numbers : (json_decode((string) $numbers, true) ?? []))
+            ->all();
+    }
+
+    /**
+     * Calcula a probabilidade exata do fechamento premiar no próximo sorteio.
+     */
+    public function calculateProbabilities(): void
+    {
+        $this->probabilityError = null;
+
+        try {
+            app(ClosingProbabilityService::class)->calculate($this->allBetNumbers());
+        } catch (\InvalidArgumentException $exception) {
+            $this->probabilityError = $exception->getMessage();
+        }
+    }
+
     public function with(): array
     {
         $bets = $this->closing->bets()->paginate(10);
@@ -582,8 +612,12 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         $friends = Auth::user()->friends();
         $sharedUsers = $this->closing->sharedWith()->get();
 
+        $betsCount = $this->closing->bets()->count();
+
         return [
             'bets' => $bets,
+            'probabilityReport' => $betsCount > 0 ? app(ClosingProbabilityService::class)->cached($this->allBetNumbers()) : null,
+            'canCalculateProbabilities' => $betsCount > 0 && $betsCount <= ClosingProbabilityService::MAX_BETS,
             'friends' => $friends,
             'sharedUsers' => $sharedUsers,
         ];
@@ -1067,6 +1101,90 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                             </p>
                         </div>
                     </div>
+                </section>
+            @endif
+
+            {{-- Probabilidade exata do fechamento --}}
+            @if ($closing->bets()->exists())
+                <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900">Chance real de premiação</h2>
+                            <p class="mt-1 text-sm text-slate-500">
+                                Probabilidade de pelo menos uma aposta atingir cada faixa no próximo sorteio, calculada sobre todos os 3.268.760 resultados possíveis.
+                            </p>
+                        </div>
+
+                        @if ($canCalculateProbabilities && ! $probabilityReport)
+                            <button
+                                type="button"
+                                wire:click="calculateProbabilities"
+                                wire:loading.attr="disabled"
+                                class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60"
+                            >
+                                <span wire:loading.remove wire:target="calculateProbabilities">Calcular probabilidades</span>
+                                <span wire:loading wire:target="calculateProbabilities">Calculando…</span>
+                            </button>
+                        @endif
+                    </div>
+
+                    @if ($probabilityError)
+                        <p class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ $probabilityError }}</p>
+                    @elseif (! $canCalculateProbabilities)
+                        <p class="mt-4 text-sm text-slate-500">O cálculo exato está disponível para fechamentos de até {{ \App\Services\Betting\ClosingProbabilityService::MAX_BETS }} apostas.</p>
+                    @endif
+
+                    @if ($probabilityReport)
+                        <div class="mt-4 overflow-x-auto">
+                            <table class="min-w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                        <th class="py-2 pr-4">Faixa</th>
+                                        <th class="py-2 pr-4 text-right">Este fechamento</th>
+                                        <th class="py-2 pr-4 text-right">1 em</th>
+                                        @if ($probabilityReport['at_least'][11]['independent_probability'] !== null)
+                                            <th class="py-2 text-right" title="Mesma quantidade de apostas simples, sem dezenas em comum entre elas">Sem sobreposição*</th>
+                                        @endif
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach ([11, 12, 13, 14, 15] as $hits)
+                                        @php $row = $probabilityReport['at_least'][$hits]; @endphp
+                                        <tr>
+                                            <td class="py-2 pr-4 font-semibold text-slate-700">{{ $hits === 15 ? '15 acertos' : "{$hits} ou mais" }}</td>
+                                            <td class="py-2 pr-4 text-right font-bold text-slate-900">{{ number_format($row['probability'] * 100, $row['probability'] < 0.01 ? 4 : 2, ',', '.') }}%</td>
+                                            <td class="py-2 pr-4 text-right text-slate-600">{{ $row['one_in'] ? number_format($row['one_in'], $row['one_in'] < 100 ? 1 : 0, ',', '.') : '—' }}</td>
+                                            @if ($row['independent_probability'] !== null)
+                                                <td class="py-2 text-right text-slate-500">{{ number_format($row['independent_probability'] * 100, $row['independent_probability'] < 0.01 ? 4 : 2, ',', '.') }}%</td>
+                                            @endif
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                            <div class="rounded-xl bg-slate-50 p-3">
+                                <span class="text-xs font-semibold text-slate-500">Apostas premiadas esperadas por sorteio</span>
+                                <p class="text-lg font-bold text-slate-900">{{ number_format($probabilityReport['expected_prized_bets'], 3, ',', '.') }}</p>
+                            </div>
+                            @if ($probabilityReport['average_overlap'] !== null)
+                                <div class="rounded-xl bg-slate-50 p-3">
+                                    <span class="text-xs font-semibold text-slate-500">Dezenas em comum entre duas apostas (média)</span>
+                                    <p class="text-lg font-bold text-slate-900">{{ number_format($probabilityReport['average_overlap'], 1, ',', '.') }}</p>
+                                </div>
+                            @endif
+                        </div>
+
+                        <p class="mt-3 text-xs leading-5 text-slate-500">
+                            {{ $probabilityReport['classification'] }}.
+                            O número médio de apostas premiadas não depende de quais dezenas você escolhe; o que muda é como as apostas se distribuem.
+                            Quanto menos dezenas as apostas têm em comum, maior a chance de pelo menos uma premiar.
+                            @if ($probabilityReport['at_least'][11]['independent_probability'] !== null)
+                                *Referência: a mesma quantidade de apostas simples, como se não tivessem dezenas em comum.
+                            @endif
+                        </p>
+                    @endif
                 </section>
             @endif
 

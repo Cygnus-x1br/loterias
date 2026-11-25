@@ -191,4 +191,68 @@ class ClosingsEditTest extends TestCase
             ->assertSee('Editar Fechamento')
             ->assertSee(route('closings.edit', $completedClosing));
     }
+
+    public function test_spread_bets_option_is_loaded_and_saved(): void
+    {
+        $closing = Closing::create([
+            'user_id' => $this->user->id,
+            'name' => 'Fechamento distribuído',
+            'method' => 'balanced',
+            'base_numbers' => range(1, 21),
+            'bet_size' => 15,
+            'planned_bets' => 10,
+            'status' => 'draft',
+            'parameters' => ['spread_bets' => true],
+        ]);
+
+        Volt::actingAs($this->user)
+            ->test('pages.closings.edit', ['closing' => $closing])
+            ->assertSet('spread_bets', true)
+            ->set('spread_bets', false)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertArrayNotHasKey('spread_bets', $closing->refresh()->parameters ?? []);
+
+        Volt::actingAs($this->user)
+            ->test('pages.closings.edit', ['closing' => $closing])
+            ->assertSet('spread_bets', false)
+            ->set('spread_bets', true)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertTrue($closing->refresh()->parameters['spread_bets']);
+    }
+
+    public function test_show_page_calculates_exact_probabilities(): void
+    {
+        $closing = Closing::create([
+            'user_id' => $this->user->id,
+            'name' => 'Fechamento com uma aposta',
+            'method' => 'random',
+            'base_numbers' => range(1, 15),
+            'bet_size' => 15,
+            'planned_bets' => 1,
+            'status' => 'completed',
+        ]);
+        Bet::create([
+            'user_id' => $this->user->id,
+            'closing_id' => $closing->id,
+            'name' => 'Aposta 1',
+            'numbers' => range(1, 15),
+            'source' => 'closing',
+            'method' => 'random',
+            'status' => 'active',
+        ]);
+
+        Volt::actingAs($this->user)
+            ->test('pages.closings.show', ['closing' => $closing])
+            ->assertSee('Chance real de premiação')
+            ->assertSee('Calcular probabilidades')
+            ->call('calculateProbabilities')
+            ->assertSet('probabilityError', null)
+            ->assertSee('10,59%')
+            ->assertSee('Exato (enumeração dos 3.268.760 sorteios possíveis)')
+            ->assertDontSee('Calcular probabilidades');
+    }
 }
