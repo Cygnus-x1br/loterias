@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\HistoricalResult;
+use App\Services\StatisticsCache;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\File;
 
@@ -67,6 +68,10 @@ class HistoricalResultSeeder extends Seeder
             ]);
         }
 
+        // upsert() não dispara os eventos do model, então as estatísticas em cache precisam ser invalidadas aqui
+        app(StatisticsCache::class)->flush();
+
         $this->command->info('Seeder finalizado com sucesso!');
+        $this->command->warn('Rode "php artisan lotofacil:calculate-scores" para calcular score e ciclo dos concursos importados.');
     }
 }

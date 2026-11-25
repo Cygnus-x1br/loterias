@@ -4,8 +4,8 @@ namespace App\Console\Commands;
 
 use App\Models\HistoricalResult;
 use App\Services\BetScoringService;
+use App\Services\StatisticsCache;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Cache;
 
 class CalculateHistoricalScoresCommand extends Command
 {
@@ -26,12 +26,11 @@ class CalculateHistoricalScoresCommand extends Command
     /**
      * Execute the console command.
      */
-    public function handle(BetScoringService $scoringService)
+    public function handle(BetScoringService $scoringService, StatisticsCache $statisticsCache)
     {
         $this->info('Limpando scores e ciclos antigos...');
         HistoricalResult::query()->update(['score' => null, 'cycle_number' => null]);
-        Cache::forget('historical_average_score');
-        Cache::forget('lotofacil_decades_cycle');
+        $statisticsCache->flush();
 
         $this->info('Iniciando o cálculo dos scores e ciclos históricos...');
 
@@ -71,6 +70,8 @@ class CalculateHistoricalScoresCommand extends Command
         }
 
         $bar->finish();
+
+        $statisticsCache->flush();
 
         $this->newLine();
         $this->info('Scores e ciclos calculados com sucesso!');

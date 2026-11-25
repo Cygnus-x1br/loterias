@@ -5,9 +5,9 @@ namespace App\Livewire;
 use App\Models\HistoricalResult;
 use App\Services\BetScoringService;
 use App\Services\LotofacilStatisticsService;
+use App\Services\StatisticsCache;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
 use Livewire\Component;
 
 class LotofacilAnalysis extends Component
@@ -56,10 +56,10 @@ class LotofacilAnalysis extends Component
     public function loadAnalysisData(bool $forceRecalculate = false): void
     {
         if ($forceRecalculate) {
-            Cache::forget('lotofacil_advanced_analysis');
+            app(StatisticsCache::class)->forget('lotofacil_advanced_analysis');
         }
 
-        $analysisData = Cache::remember('lotofacil_advanced_analysis', now()->addHours(6), function () {
+        $analysisData = app(StatisticsCache::class)->remember('lotofacil_advanced_analysis', now()->addHours(6), function () {
             $results = HistoricalResult::query()
                 ->orderBy('contest_number', 'asc')
                 ->get(['id', 'contest_number', 'draw_date', 'drawn_numbers']);
@@ -106,7 +106,7 @@ class LotofacilAnalysis extends Component
                 'sum_analysis' => $this->calculateSumAnalysis($normalizedResults),
                 'even_odd_analysis' => $this->calculateEvenOddAnalysis($normalizedResults),
                 'frame_center_analysis' => $this->calculateFrameCenterAnalysis($normalizedResults),
-                'consecutive_sequences' => $this->calculateConsecutiveSequencesAnalysis($normalizedResults),
+                'consecutive_sequences' => app(LotofacilStatisticsService::class)->getConsecutiveSequencesAnalysis(),
             ];
         });
 
@@ -214,7 +214,7 @@ class LotofacilAnalysis extends Component
                 'min_sum' => 0,
                 'max_sum' => 0,
                 'average_sum' => 0.0,
-                'most_common_range' => '180 a 220',
+                'most_common_range' => '175 a 215',
                 'most_common_range_percentage' => 0.0,
                 'ranges_distribution' => [],
             ];
@@ -245,7 +245,7 @@ class LotofacilAnalysis extends Component
                 $maxSum = $sum;
             }
 
-            if ($sum >= 180 && $sum <= 220) {
+            if ($sum >= 175 && $sum <= 215) {
                 $inMainRangeCount++;
             }
 
@@ -269,7 +269,7 @@ class LotofacilAnalysis extends Component
             'min_sum' => $minSum === PHP_INT_MAX ? 0 : $minSum,
             'max_sum' => $maxSum,
             'average_sum' => round($totalSum / $count, 1),
-            'most_common_range' => '180 a 220',
+            'most_common_range' => '175 a 215',
             'most_common_range_percentage' => round(($inMainRangeCount / $count) * 100, 2),
             'ranges_distribution' => $rangesDistribution,
         ];
@@ -410,136 +410,6 @@ class LotofacilAnalysis extends Component
             'last_draw_pattern' => "{$lastFrame} moldura / {$lastCenter} centro",
             'patterns' => $patterns,
         ];
-    }
-
-    /**
-     * 5. Análise de Ocorrência de Sequências Consecutivas (tamanhos 2, 3 e 4+).
-     */
-    private function calculateConsecutiveSequencesAnalysis(Collection $results): array
-    {
-        $count = $results->count();
-        if ($count === 0) {
-            return [
-                'summary' => [],
-                'top_pairs_consecutive' => [],
-                'top_trios_consecutive' => [],
-                'top_quads_consecutive' => [],
-            ];
-        }
-
-        $drawsWithSeq2 = 0;
-        $drawsWithSeq3 = 0;
-        $drawsWithSeq4 = 0;
-
-        $pairSequencesCount = [];
-        $trioSequencesCount = [];
-        $quadSequencesCount = [];
-
-        foreach ($results as $result) {
-            $numbers = $result['drawn_numbers'];
-
-            $seqFlags = $this->extractConsecutiveRunsFlags($numbers);
-            if ($seqFlags['hasSeq2']) {
-                $drawsWithSeq2++;
-            }
-            if ($seqFlags['hasSeq3']) {
-                $drawsWithSeq3++;
-            }
-            if ($seqFlags['hasSeq4']) {
-                $drawsWithSeq4++;
-            }
-
-            $this->tallySubSequences($numbers, $pairSequencesCount, $trioSequencesCount, $quadSequencesCount);
-        }
-
-        arsort($pairSequencesCount);
-        arsort($trioSequencesCount);
-        arsort($quadSequencesCount);
-
-        return [
-            'summary' => [
-                'seq2_percentage' => round(($drawsWithSeq2 / $count) * 100, 1),
-                'seq2_count' => $drawsWithSeq2,
-                'seq3_percentage' => round(($drawsWithSeq3 / $count) * 100, 1),
-                'seq3_count' => $drawsWithSeq3,
-                'seq4_percentage' => round(($drawsWithSeq4 / $count) * 100, 1),
-                'seq4_count' => $drawsWithSeq4,
-            ],
-            'top_pairs_consecutive' => array_slice($pairSequencesCount, 0, 8, true),
-            'top_trios_consecutive' => array_slice($trioSequencesCount, 0, 6, true),
-            'top_quads_consecutive' => array_slice($quadSequencesCount, 0, 4, true),
-        ];
-    }
-
-    /**
-     * Identifica a presença de sequências contínuas de 2, 3 e 4 números.
-     */
-    private function extractConsecutiveRunsFlags(array $numbers): array
-    {
-        $hasSeq2 = false;
-        $hasSeq3 = false;
-        $hasSeq4 = false;
-
-        $currentRun = [$numbers[0]];
-        $n = count($numbers);
-
-        for ($i = 1; $i < $n; $i++) {
-            if ($numbers[$i] === $numbers[$i - 1] + 1) {
-                $currentRun[] = $numbers[$i];
-            } else {
-                $this->updateSeqFlags($currentRun, $hasSeq2, $hasSeq3, $hasSeq4);
-                $currentRun = [$numbers[$i]];
-            }
-        }
-        $this->updateSeqFlags($currentRun, $hasSeq2, $hasSeq3, $hasSeq4);
-
-        return [
-            'hasSeq2' => $hasSeq2,
-            'hasSeq3' => $hasSeq3,
-            'hasSeq4' => $hasSeq4,
-        ];
-    }
-
-    private function updateSeqFlags(array $run, bool &$hasSeq2, bool &$hasSeq3, bool &$hasSeq4): void
-    {
-        $len = count($run);
-        if ($len >= 2) {
-            $hasSeq2 = true;
-        }
-        if ($len >= 3) {
-            $hasSeq3 = true;
-        }
-        if ($len >= 4) {
-            $hasSeq4 = true;
-        }
-    }
-
-    /**
-     * Contabiliza sequências específicas de 2, 3 e 4 números consecutivos.
-     */
-    private function tallySubSequences(
-        array $numbers,
-        array &$pairCounts,
-        array &$trioCounts,
-        array &$quadCounts
-    ): void {
-        $n = count($numbers);
-        for ($i = 0; $i < $n - 1; $i++) {
-            if ($numbers[$i + 1] === $numbers[$i] + 1) {
-                $seq2 = sprintf('%02d-%02d', $numbers[$i], $numbers[$i + 1]);
-                $pairCounts[$seq2] = ($pairCounts[$seq2] ?? 0) + 1;
-
-                if ($i < $n - 2 && $numbers[$i + 2] === $numbers[$i] + 2) {
-                    $seq3 = sprintf('%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2]);
-                    $trioCounts[$seq3] = ($trioCounts[$seq3] ?? 0) + 1;
-
-                    if ($i < $n - 3 && $numbers[$i + 3] === $numbers[$i] + 3) {
-                        $seq4 = sprintf('%02d-%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2], $numbers[$i + 3]);
-                        $quadCounts[$seq4] = ($quadCounts[$seq4] ?? 0) + 1;
-                    }
-                }
-            }
-        }
     }
 
     public function render()

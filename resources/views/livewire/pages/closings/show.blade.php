@@ -913,6 +913,26 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                     </div>
                 @endif
 
+                {{-- Avisos da geração (ex: apostas aceitas com filtros relaxados) --}}
+                @if (! empty($closing->generation_warnings))
+                    <div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                        <div class="flex items-start gap-3">
+                            <svg class="mt-0.5 h-5 w-5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                            </svg>
+                            <div>
+                                <h4 class="text-sm font-bold text-amber-900">Apostas fora dos filtros pedidos</h4>
+                                <ul class="mt-1 list-disc space-y-1 pl-4 text-xs leading-5 text-amber-800">
+                                    @foreach ($closing->generation_warnings as $warning)
+                                        <li>{{ $warning }}</li>
+                                    @endforeach
+                                </ul>
+                                <p class="mt-2 text-xs text-amber-700">As apostas afetadas têm uma observação na tabela abaixo.</p>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
                 {{-- Aviso e Ação de Apostas Faltantes (quando geradas < planned_bets) --}}
                 @php
                     $currentBetsCount = $closing->bets()->count();
@@ -1189,6 +1209,12 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                             <div class="mt-0.5 text-xs text-slate-500">
                                                 #{{ $bet->id }}
                                             </div>
+
+                                            @if ($bet->notes)
+                                                <div class="mt-1 rounded-md bg-amber-50 px-1.5 py-1 text-[11px] leading-4 text-amber-800" title="{{ $bet->notes }}">
+                                                    {{ $bet->notes }}
+                                                </div>
+                                            @endif
                                         </td>
 
                                         <td class="w-[190px] min-w-[160px] px-3 py-3.5 sm:px-4">

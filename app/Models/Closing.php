@@ -25,6 +25,7 @@ class Closing extends Model
         'guarantee',
         'budget',
         'parameters',
+        'generation_warnings',
         'status',
         'contest_number',
         'draw_date',
@@ -43,6 +44,7 @@ class Closing extends Model
             'guarantee' => 'integer',
             'budget' => 'decimal:2',
             'parameters' => 'array',
+            'generation_warnings' => 'array',
             'contest_number' => 'integer',
             'draw_date' => 'date',
         ];

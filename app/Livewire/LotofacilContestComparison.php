@@ -3,7 +3,7 @@
 namespace App\Livewire;
 
 use App\Services\LotofacilStatisticsService;
-use Illuminate\Support\Facades\Cache;
+use App\Services\StatisticsCache;
 use Livewire\Component;
 
 class LotofacilContestComparison extends Component
@@ -33,7 +33,7 @@ class LotofacilContestComparison extends Component
      */
     public function recalculate(): void
     {
-        Cache::forget("lotofacil_contests_comparison_{$this->limit}");
+        app(StatisticsCache::class)->forget("lotofacil_contests_comparison_{$this->limit}");
     }
 
     public function render()

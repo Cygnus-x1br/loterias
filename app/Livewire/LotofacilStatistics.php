@@ -4,8 +4,8 @@ namespace App\Livewire;
 
 use App\Models\HistoricalResult;
 use App\Services\LotofacilStatisticsService;
+use App\Services\StatisticsCache;
 use Carbon\Carbon; // Certifique-se de que o modelo está importado
-use Illuminate\Support\Facades\Cache;
 use Livewire\Component;
 
 // Certifique-se de que Carbon está importado
@@ -102,9 +102,11 @@ class LotofacilStatistics extends Component
      */
     public function recalculateRepeatedDraws(): void
     {
-        Cache::forget('repeated_draws_analysis');
-        Cache::forget('historical_average_score');
-        Cache::forget('number_temperature_classification_20');
+        $cache = app(StatisticsCache::class);
+        $cache->forget('repeated_draws_analysis');
+        $cache->forget('historical_average_score');
+        $cache->forget('number_frequencies_20');
+        $cache->forget('number_temperature_classification_20');
         $this->loadData();
     }
 

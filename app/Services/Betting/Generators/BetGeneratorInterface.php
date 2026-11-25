@@ -15,7 +15,11 @@ interface BetGeneratorInterface
     /**
      * Gera as combinações de dezenas para o fechamento.
      *
-     * @return \Generator<int, array<int, int>>
+     * Ao terminar, o gerador pode retornar (via `return`) um relatório da geração:
+     * `bet_notes` (observação por aposta, indexada pelas dezenas ordenadas unidas por "-")
+     * e `warnings` (avisos exibidos no fechamento).
+     *
+     * @return \Generator<int, array<int, int>, mixed, array{bet_notes?: array<string, string>, warnings?: array<int, string>}|null>
      */
     public function generate(Closing $closing): \Generator;
 }

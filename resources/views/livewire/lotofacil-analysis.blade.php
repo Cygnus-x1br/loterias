@@ -184,6 +184,9 @@
                                     style="width: {{ min(100, max(0, $lastContestScoreDetails['total_score'] / 10)) }}%"
                                 ></div>
                             </div>
+                            @if (! empty($lastContestScoreDetails['disclaimer']))
+                                <p class="mt-2 text-[11px] text-slate-500">{{ $lastContestScoreDetails['disclaimer'] }}</p>
+                            @endif
                         </div>
 
                         {{-- Grade de Critérios --}}
@@ -200,7 +203,7 @@
                                     Soma: {{ $lastContestScoreDetails['details']['sum']['value'] ?? 0 }}
                                 </p>
                                 <span class="text-[11px] text-slate-500">
-                                    {{ (($lastContestScoreDetails['details']['sum']['value'] ?? 0) >= 180 && ($lastContestScoreDetails['details']['sum']['value'] ?? 0) <= 220) ? '✓ Faixa ideal (180 a 220)' : 'Fora da faixa mais comum' }}
+                                    {{ (($lastContestScoreDetails['details']['sum']['value'] ?? 0) >= 175 && ($lastContestScoreDetails['details']['sum']['value'] ?? 0) <= 215) ? '✓ Faixa ideal (175 a 215)' : 'Fora da faixa mais comum' }}
                                 </span>
                             </div>
 
@@ -328,7 +331,7 @@
                                     {{ $lastContestScoreDetails['details']['cycle']['value'] ?? 0 }} do ciclo / {{ $lastContestScoreDetails['details']['delay']['value'] ?? 0 }} atrasadas
                                 </p>
                                 <span class="text-[11px] text-slate-500">
-                                    Pontuação de ciclo e dezenas atrasadas
+                                    Critério heurístico: dezenas do ciclo ou atrasadas não têm mais chance de sair
                                 </span>
                             </div>
                         </div>
@@ -432,7 +435,7 @@
                 </div>
 
                 <span class="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700 border border-violet-100">
-                    Faixa Ideal: {{ $sumAnalysis['most_common_range'] ?? '180 a 220' }}
+                    Faixa Ideal: {{ $sumAnalysis['most_common_range'] ?? '175 a 215' }}
                 </span>
             </div>
 
@@ -443,14 +446,14 @@
                         {{ $sumAnalysis['last_draw_sum'] ?? 0 }}
                     </p>
                     <p class="mt-1 text-xs text-slate-500">
-                        {{ ($sumAnalysis['last_draw_sum'] >= 180 && $sumAnalysis['last_draw_sum'] <= 220) ? '✓ Dentro da faixa padrão' : '⚠ Fora da faixa mais comum' }}
+                        {{ ($sumAnalysis['last_draw_sum'] >= 175 && $sumAnalysis['last_draw_sum'] <= 215) ? '✓ Dentro da faixa padrão' : '⚠ Fora da faixa mais comum' }}
                     </p>
                 </div>
 
                 <div class="rounded-xl border border-slate-100 bg-slate-50 p-4">
                     <span class="text-xs font-semibold text-slate-500">Faixa Mais Frequente</span>
                     <p class="mt-1 text-2xl font-black text-emerald-600">
-                        {{ $sumAnalysis['most_common_range'] ?? '180 a 220' }}
+                        {{ $sumAnalysis['most_common_range'] ?? '175 a 215' }}
                     </p>
                     <p class="mt-1 text-xs text-slate-600">
                         Representa <strong>{{ $sumAnalysis['most_common_range_percentage'] ?? 0 }}%</strong> dos sorteios

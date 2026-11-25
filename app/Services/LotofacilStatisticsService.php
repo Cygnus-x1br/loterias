@@ -3,12 +3,17 @@
 namespace App\Services;
 
 use App\Models\HistoricalResult;
+use App\Services\Betting\Math\Combinatorics;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
 
 class LotofacilStatisticsService
 {
+    protected function cache(): StatisticsCache
+    {
+        return app(StatisticsCache::class);
+    }
+
     /**
      * Retorna as dezenas mais sorteadas.
      *
@@ -20,7 +25,7 @@ class LotofacilStatisticsService
     {
         $cacheKey = 'most_drawn_numbers_'.$limit.'_'.($lastContests ?? 'all');
 
-        $data = Cache::remember($cacheKey, now()->addHours(6), function () use ($lastContests, $limit) {
+        $data = $this->cache()->remember($cacheKey, now()->addHours(6), function () use ($lastContests, $limit) {
             $query = HistoricalResult::query();
 
             if ($lastContests) {
@@ -66,7 +71,7 @@ class LotofacilStatisticsService
     {
         $cacheKey = 'least_drawn_numbers_'.$limit.'_'.($lastContests ?? 'all');
 
-        $data = Cache::remember($cacheKey, now()->addHours(6), function () use ($lastContests, $limit) {
+        $data = $this->cache()->remember($cacheKey, now()->addHours(6), function () use ($lastContests, $limit) {
             $query = HistoricalResult::query();
 
             if ($lastContests) {
@@ -111,7 +116,7 @@ class LotofacilStatisticsService
     {
         $cacheKey = 'number_frequencies_'.($lastContests ?? 'all');
 
-        $data = Cache::remember($cacheKey, now()->addHours(6), function () use ($lastContests) {
+        $data = $this->cache()->remember($cacheKey, now()->addHours(6), function () use ($lastContests) {
             $query = HistoricalResult::query();
 
             if ($lastContests) {
@@ -162,7 +167,7 @@ class LotofacilStatisticsService
     {
         $cacheKey = 'most_frequent_pairs_'.$limit.'_'.($lastContests ?? 'all');
 
-        $data = Cache::remember($cacheKey, now()->addHours(6), function () use ($lastContests, $limit) {
+        $data = $this->cache()->remember($cacheKey, now()->addHours(6), function () use ($lastContests, $limit) {
             $query = HistoricalResult::query();
 
             if ($lastContests) {
@@ -212,7 +217,7 @@ class LotofacilStatisticsService
     {
         $cacheKey = 'most_frequent_trios_'.$limit.'_'.($lastContests ?? 'all');
 
-        $data = Cache::remember($cacheKey, now()->addHours(6), function () use ($lastContests, $limit) {
+        $data = $this->cache()->remember($cacheKey, now()->addHours(6), function () use ($lastContests, $limit) {
             $query = HistoricalResult::query();
 
             if ($lastContests) {
@@ -258,7 +263,7 @@ class LotofacilStatisticsService
      */
     public function getLastContest(): ?HistoricalResult
     {
-        $cachedAttributes = Cache::remember('last_contest', now()->addMinutes(30), function () {
+        $cachedAttributes = $this->cache()->remember('last_contest', now()->addMinutes(30), function () {
             $last = HistoricalResult::orderByDesc('contest_number')->first();
 
             return $last ? $last->getAttributes() : null;
@@ -285,7 +290,7 @@ class LotofacilStatisticsService
      */
     public function getLastContestFullStatistics(): ?array
     {
-        return Cache::remember('last_contest_full_statistics', now()->addMinutes(30), function () {
+        return $this->cache()->remember('last_contest_full_statistics', now()->addMinutes(30), function () {
             $lastTwo = HistoricalResult::orderByDesc('contest_number')->take(2)->get();
             $latest = $lastTwo->first();
 
@@ -347,7 +352,7 @@ class LotofacilStatisticsService
      */
     public function getLastContestWithSum(): ?array
     {
-        return Cache::remember('last_contest_with_sum', now()->addMinutes(30), function () {
+        return $this->cache()->remember('last_contest_with_sum', now()->addMinutes(30), function () {
             $lastContest = HistoricalResult::orderByDesc('contest_number')->first();
             if ($lastContest) {
                 return [
@@ -367,7 +372,7 @@ class LotofacilStatisticsService
      */
     public function checkRepeatedDraws(): array
     {
-        return Cache::remember('repeated_draws_analysis', now()->addHours(6), function () {
+        return $this->cache()->remember('repeated_draws_analysis', now()->addHours(6), function () {
             $results = HistoricalResult::orderBy('contest_number')
                 ->get(['id', 'contest_number', 'draw_date', 'drawn_numbers', 'drawn_numbers_hash']);
 
@@ -411,7 +416,7 @@ class LotofacilStatisticsService
      */
     public function getHistoricalDrawHashes(): array
     {
-        return Cache::remember('historical_draw_hashes', now()->addHours(6), function () {
+        return $this->cache()->remember('historical_draw_hashes', now()->addHours(6), function () {
             $hashes = HistoricalResult::query()
                 ->whereNotNull('drawn_numbers_hash')
                 ->pluck('drawn_numbers_hash')
@@ -432,7 +437,7 @@ class LotofacilStatisticsService
     {
         $cacheKey = 'number_temperature_classification_'.$recentContests;
 
-        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($recentContests) {
+        return $this->cache()->remember($cacheKey, now()->addMinutes(30), function () use ($recentContests) {
             $latestContestNumber = HistoricalResult::max('contest_number') ?? 0;
 
             // Frequência recente
@@ -528,7 +533,7 @@ class LotofacilStatisticsService
      */
     public function getHistoricalAverageScore(): array
     {
-        return Cache::remember('historical_average_score', now()->addHours(6), function () {
+        return $this->cache()->remember('historical_average_score', now()->addHours(6), function () {
             // Se existir valores nulos, usar o artisan command lotofacil:calculate-scores
             $totalContests = HistoricalResult::count();
             $averageScore = HistoricalResult::whereNotNull('score')->avg('score') ?? 0;
@@ -562,94 +567,73 @@ class LotofacilStatisticsService
     }
 
     /**
-     * Calcula as cotas de repetição baseadas no atraso (delay) do histórico recente.
-     * Dá preferência para repetições que estão mais "atrasadas" no histórico.
+     * Probabilidade de uma combinação aleatória de $betSize dezenas conter exatamente $repeated
+     * das 15 dezenas do último concurso (distribuição hipergeométrica):
+     * P(k) = C(15, k) · C(10, m − k) / C(25, m).
+     *
+     * Para m = 15 é exatamente a distribuição de repetidas entre dois sorteios consecutivos.
      */
-    public function calculateRepetitionQuotas(int $minRepeated, int $maxRepeated, int $totalGames, int $historyLimit = 50): array
+    public function repetitionProbability(int $repeated, int $betSize = 15): float
     {
-        $cacheKey = "repetition_quotas_{$minRepeated}_{$maxRepeated}_{$totalGames}_{$historyLimit}";
+        $total = Combinatorics::countCombinations(25, $betSize);
 
-        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($minRepeated, $maxRepeated, $totalGames, $historyLimit) {
-            $results = HistoricalResult::orderByDesc('contest_number')
-                ->take($historyLimit + 1)
-                ->get(['contest_number', 'drawn_numbers'])
-                ->reverse()
-                ->values();
+        if ($total === 0) {
+            return 0.0;
+        }
 
-            $history = [];
-            for ($i = 1; $i < $results->count(); $i++) {
-                $prev = is_array($results[$i - 1]->drawn_numbers) ? $results[$i - 1]->drawn_numbers : json_decode((string) $results[$i - 1]->drawn_numbers, true);
-                $curr = is_array($results[$i]->drawn_numbers) ? $results[$i]->drawn_numbers : json_decode((string) $results[$i]->drawn_numbers, true);
+        return Combinatorics::countCombinations(15, $repeated)
+            * Combinatorics::countCombinations(10, $betSize - $repeated)
+            / $total;
+    }
 
-                if (is_array($prev) && is_array($curr)) {
-                    $repeated = count(array_intersect($prev, $curr));
-                    $history[] = $repeated;
-                }
+    /**
+     * Distribui $totalGames apostas entre as quantidades de repetidas do último concurso
+     * ($minRepeated a $maxRepeated), proporcionalmente à probabilidade real de cada quantidade.
+     * As sobras do arredondamento vão para os maiores restos decimais.
+     *
+     * @return array<int, int> Chave: quantidade de repetidas, valor: quantidade de apostas.
+     */
+    public function calculateRepetitionQuotas(int $minRepeated, int $maxRepeated, int $totalGames, int $betSize = 15): array
+    {
+        $options = range($minRepeated, $maxRepeated);
+        $weights = [];
+
+        foreach ($options as $repeated) {
+            $weights[$repeated] = $this->repetitionProbability($repeated, $betSize);
+        }
+
+        $totalWeight = array_sum($weights);
+
+        // Se nenhuma quantidade da faixa for possível, distribui igualmente
+        if ($totalWeight <= 0) {
+            $weights = array_fill_keys($options, 1.0);
+            $totalWeight = count($options);
+        }
+
+        $quotas = [];
+        $remainders = [];
+        $remainingGames = $totalGames;
+
+        foreach ($weights as $repeated => $weight) {
+            $exactQuota = $weight / $totalWeight * $totalGames;
+            $quotas[$repeated] = (int) floor($exactQuota);
+            $remainders[$repeated] = $exactQuota - $quotas[$repeated];
+            $remainingGames -= $quotas[$repeated];
+        }
+
+        arsort($remainders);
+        foreach (array_keys($remainders) as $repeated) {
+            if ($remainingGames <= 0) {
+                break;
             }
 
-            // Inverte o histórico para que o índice 0 seja o sorteio mais recente
-            $history = array_reverse($history);
+            $quotas[$repeated]++;
+            $remainingGames--;
+        }
 
-            $delays = [];
-            for ($i = $minRepeated; $i <= $maxRepeated; $i++) {
-                $delays[$i] = count($history); // Máximo possível como padrão (nunca saiu na janela)
-                foreach ($history as $index => $rep) {
-                    if ($rep === $i) {
-                        $delays[$i] = $index;
-                        break;
-                    }
-                }
-            }
+        ksort($quotas);
 
-            // Cálculo do peso: Peso = Delay + 1 (evita peso 0 para o mais recente)
-            $weights = [];
-            $totalWeight = 0;
-            foreach ($delays as $rep => $delay) {
-                $weight = $delay + 1;
-                $weights[$rep] = $weight;
-                $totalWeight += $weight;
-            }
-
-            $quotas = [];
-            $remainingGames = $totalGames;
-            $remainders = [];
-
-            if ($totalWeight > 0) {
-                foreach ($weights as $rep => $weight) {
-                    $exactQuota = ($weight / $totalWeight) * $totalGames;
-                    $quotas[$rep] = (int) floor($exactQuota);
-                    $remainders[$rep] = $exactQuota - $quotas[$rep];
-                    $remainingGames -= $quotas[$rep];
-                }
-
-                // Distribui os jogos restantes com base no maior resto decimal
-                arsort($remainders);
-                foreach ($remainders as $rep => $remainder) {
-                    if ($remainingGames > 0) {
-                        $quotas[$rep]++;
-                        $remainingGames--;
-                    } else {
-                        break;
-                    }
-                }
-            } else {
-                // Fallback de distribuição igualitária
-                $options = range($minRepeated, $maxRepeated);
-                foreach ($options as $opt) {
-                    $quotas[$opt] = 0;
-                }
-                while ($remainingGames > 0) {
-                    foreach ($options as $opt) {
-                        if ($remainingGames > 0) {
-                            $quotas[$opt]++;
-                            $remainingGames--;
-                        }
-                    }
-                }
-            }
-
-            return $quotas;
-        });
+        return $quotas;
     }
 
     /**
@@ -664,7 +648,7 @@ class LotofacilStatisticsService
         $historyWindow = 20;
         $cacheKey = "lotofacil_contests_comparison_{$limit}";
 
-        return Cache::remember($cacheKey, now()->addHours(6), function () use ($limit, $historyWindow) {
+        return $this->cache()->remember($cacheKey, now()->addHours(6), function () use ($limit, $historyWindow) {
             $rawResults = HistoricalResult::query()
                 ->orderBy('contest_number', 'desc')
                 ->take($limit + $historyWindow + 1)
@@ -933,7 +917,7 @@ class LotofacilStatisticsService
     {
         $cacheKey = 'lotofacil_decades_cycle'.($contextContestNumber ? '_'.$contextContestNumber : '');
 
-        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($contextContestNumber) {
+        return $this->cache()->remember($cacheKey, now()->addMinutes(30), function () use ($contextContestNumber) {
             $query = HistoricalResult::query();
             if ($contextContestNumber) {
                 $query->where('contest_number', '<', $contextContestNumber);
@@ -1020,7 +1004,7 @@ class LotofacilStatisticsService
     {
         $cacheKey = 'lotofacil_current_delay'.($contextContestNumber ? '_'.$contextContestNumber : '');
 
-        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($contextContestNumber) {
+        return $this->cache()->remember($cacheKey, now()->addMinutes(30), function () use ($contextContestNumber) {
             $query = HistoricalResult::query();
             if ($contextContestNumber) {
                 $query->where('contest_number', '<', $contextContestNumber);
@@ -1075,5 +1059,160 @@ class LotofacilStatisticsService
 
             return $formattedDelays;
         });
+    }
+
+    /**
+     * Análise de sequências consecutivas (tamanhos 2, 3 e 4) em toda a série histórica,
+     * com as sequências específicas mais frequentes.
+     *
+     * @return array{summary: array<string, int|float>, top_pairs_consecutive: array<string, int>, top_trios_consecutive: array<string, int>, top_quads_consecutive: array<string, int>}
+     */
+    public function getConsecutiveSequencesAnalysis(): array
+    {
+        return $this->cache()->remember('consecutive_sequences_analysis', now()->addHours(6), function (): array {
+            $results = HistoricalResult::query()
+                ->orderBy('contest_number')
+                ->pluck('drawn_numbers')
+                ->map(function ($drawnNumbers): array {
+                    $numbers = is_array($drawnNumbers) ? $drawnNumbers : (json_decode((string) $drawnNumbers, true) ?? []);
+                    $numbers = array_map('intval', $numbers);
+                    sort($numbers);
+
+                    return ['drawn_numbers' => $numbers];
+                })
+                ->filter(fn (array $result): bool => $result['drawn_numbers'] !== []);
+
+            return $this->calculateConsecutiveSequencesAnalysis($results);
+        });
+    }
+
+    /**
+     * @param  Collection<int, array{drawn_numbers: array<int, int>}>  $results
+     */
+    private function calculateConsecutiveSequencesAnalysis(Collection $results): array
+    {
+        $count = $results->count();
+        if ($count === 0) {
+            return [
+                'summary' => [],
+                'top_pairs_consecutive' => [],
+                'top_trios_consecutive' => [],
+                'top_quads_consecutive' => [],
+            ];
+        }
+
+        $drawsWithSeq2 = 0;
+        $drawsWithSeq3 = 0;
+        $drawsWithSeq4 = 0;
+
+        $pairSequencesCount = [];
+        $trioSequencesCount = [];
+        $quadSequencesCount = [];
+
+        foreach ($results as $result) {
+            $numbers = $result['drawn_numbers'];
+
+            $seqFlags = $this->extractConsecutiveRunsFlags($numbers);
+            if ($seqFlags['hasSeq2']) {
+                $drawsWithSeq2++;
+            }
+            if ($seqFlags['hasSeq3']) {
+                $drawsWithSeq3++;
+            }
+            if ($seqFlags['hasSeq4']) {
+                $drawsWithSeq4++;
+            }
+
+            $this->tallySubSequences($numbers, $pairSequencesCount, $trioSequencesCount, $quadSequencesCount);
+        }
+
+        arsort($pairSequencesCount);
+        arsort($trioSequencesCount);
+        arsort($quadSequencesCount);
+
+        return [
+            'summary' => [
+                'seq2_percentage' => round(($drawsWithSeq2 / $count) * 100, 1),
+                'seq2_count' => $drawsWithSeq2,
+                'seq3_percentage' => round(($drawsWithSeq3 / $count) * 100, 1),
+                'seq3_count' => $drawsWithSeq3,
+                'seq4_percentage' => round(($drawsWithSeq4 / $count) * 100, 1),
+                'seq4_count' => $drawsWithSeq4,
+            ],
+            'top_pairs_consecutive' => array_slice($pairSequencesCount, 0, 8, true),
+            'top_trios_consecutive' => array_slice($trioSequencesCount, 0, 6, true),
+            'top_quads_consecutive' => array_slice($quadSequencesCount, 0, 4, true),
+        ];
+    }
+
+    /**
+     * Identifica a presença de sequências contínuas de 2, 3 e 4 números.
+     */
+    private function extractConsecutiveRunsFlags(array $numbers): array
+    {
+        $hasSeq2 = false;
+        $hasSeq3 = false;
+        $hasSeq4 = false;
+
+        $currentRun = [$numbers[0]];
+        $n = count($numbers);
+
+        for ($i = 1; $i < $n; $i++) {
+            if ($numbers[$i] === $numbers[$i - 1] + 1) {
+                $currentRun[] = $numbers[$i];
+            } else {
+                $this->updateSeqFlags($currentRun, $hasSeq2, $hasSeq3, $hasSeq4);
+                $currentRun = [$numbers[$i]];
+            }
+        }
+        $this->updateSeqFlags($currentRun, $hasSeq2, $hasSeq3, $hasSeq4);
+
+        return [
+            'hasSeq2' => $hasSeq2,
+            'hasSeq3' => $hasSeq3,
+            'hasSeq4' => $hasSeq4,
+        ];
+    }
+
+    private function updateSeqFlags(array $run, bool &$hasSeq2, bool &$hasSeq3, bool &$hasSeq4): void
+    {
+        $len = count($run);
+        if ($len >= 2) {
+            $hasSeq2 = true;
+        }
+        if ($len >= 3) {
+            $hasSeq3 = true;
+        }
+        if ($len >= 4) {
+            $hasSeq4 = true;
+        }
+    }
+
+    /**
+     * Contabiliza sequências específicas de 2, 3 e 4 números consecutivos.
+     */
+    private function tallySubSequences(
+        array $numbers,
+        array &$pairCounts,
+        array &$trioCounts,
+        array &$quadCounts
+    ): void {
+        $n = count($numbers);
+        for ($i = 0; $i < $n - 1; $i++) {
+            if ($numbers[$i + 1] === $numbers[$i] + 1) {
+                $seq2 = sprintf('%02d-%02d', $numbers[$i], $numbers[$i + 1]);
+                $pairCounts[$seq2] = ($pairCounts[$seq2] ?? 0) + 1;
+
+                if ($i < $n - 2 && $numbers[$i + 2] === $numbers[$i] + 2) {
+                    $seq3 = sprintf('%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2]);
+                    $trioCounts[$seq3] = ($trioCounts[$seq3] ?? 0) + 1;
+
+                    if ($i < $n - 3 && $numbers[$i + 3] === $numbers[$i] + 3) {
+                        $seq4 = sprintf('%02d-%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2], $numbers[$i + 3]);
+                        $quadCounts[$seq4] = ($quadCounts[$seq4] ?? 0) + 1;
+                    }
+                }
+            }
+        }
     }
 }

@@ -80,12 +80,15 @@ class ClosingGenerator
                 // Atualiza o status para 'processing' dentro da transação
                 $closing->update([
                     'status' => 'processing',
+                    'generation_warnings' => null,
                 ]);
 
                 $createdBets = 0;
+                $createdBetsByNumbers = [];
                 $historicalHashes = app(LotofacilStatisticsService::class)->getHistoricalDrawHashes();
+                $combinations = $generator->generate($closing);
 
-                foreach ($generator->generate($closing) as $combination) {
+                foreach ($combinations as $combination) {
                     if (
                         $closing->planned_bets !== null
                         && $createdBets >= $closing->planned_bets
@@ -102,7 +105,7 @@ class ClosingGenerator
                         }
                     }
 
-                    Bet::create([
+                    $bet = Bet::create([
                         'user_id' => $closing->user_id,
                         'closing_id' => $closing->id,
                         'name' => sprintf(
@@ -119,6 +122,7 @@ class ClosingGenerator
                         'notes' => null,
                     ]);
 
+                    $createdBetsByNumbers[$this->numbersKey($combination)] = $bet;
                     $createdBets++;
                 }
 
@@ -128,9 +132,17 @@ class ClosingGenerator
                     );
                 }
 
+                // Relatório devolvido pelo gerador ao terminar (ex: apostas aceitas com filtros relaxados)
+                $report = $combinations->valid() ? null : $combinations->getReturn();
+
+                foreach ($report['bet_notes'] ?? [] as $numbersKey => $note) {
+                    ($createdBetsByNumbers[$numbersKey] ?? null)?->update(['notes' => $note]);
+                }
+
                 // Atualiza o status para 'completed' se tudo ocorreu bem
                 $closing->update([
                     'status' => 'completed',
+                    'generation_warnings' => ($report['warnings'] ?? []) ?: null,
                 ]);
 
                 return $createdBets;
@@ -161,6 +173,7 @@ class ClosingGenerator
             $closing->bets()->delete();
             $closing->update([
                 'status' => 'draft',
+                'generation_warnings' => null,
                 'contest_number' => null,
                 'draw_date' => null,
             ]);
@@ -237,6 +250,11 @@ class ClosingGenerator
         $historicalHashes = app(LotofacilStatisticsService::class)->getHistoricalDrawHashes();
         $createdBets = 0;
 
+        // A complementação sorteia dentro do grupo-base sem aplicar os filtros do método equilibrado
+        $complementNote = $closing->method === 'balanced'
+            ? 'Aposta complementar: gerada sem os filtros do método equilibrado.'
+            : null;
+
         DB::transaction(function () use (
             $closing,
             $baseNumbers,
@@ -246,7 +264,8 @@ class ClosingGenerator
             $historicalHashes,
             &$existingHashes,
             &$createdBets,
-            $currentCount
+            $currentCount,
+            $complementNote
         ): void {
             $attempts = 0;
             $maxAttempts = $neededCount * 1000 + 2000;
@@ -303,7 +322,7 @@ class ClosingGenerator
                     'status' => $closing->status === 'placed' ? 'placed' : 'active',
                     'contest_number' => $closing->contest_number,
                     'draw_date' => $closing->draw_date,
-                    'notes' => null,
+                    'notes' => $complementNote,
                 ]);
 
                 $existingHashes[$hash] = true;
@@ -318,7 +337,29 @@ class ClosingGenerator
 
         $this->renumberBets($closing);
 
+        if ($complementNote !== null && $createdBets > 0) {
+            $closing->update([
+                'generation_warnings' => [
+                    ...($closing->generation_warnings ?? []),
+                    sprintf('%d aposta(s) complementar(es) foram geradas sem os filtros do método equilibrado.', $createdBets),
+                ],
+            ]);
+        }
+
         return $createdBets;
+    }
+
+    /**
+     * Chave das dezenas ordenadas (ex: "1-2-3-...") usada para casar apostas com o relatório do gerador.
+     *
+     * @param  array<int, int|string>  $numbers
+     */
+    protected function numbersKey(array $numbers): string
+    {
+        $numbers = array_map('intval', $numbers);
+        sort($numbers);
+
+        return implode('-', $numbers);
     }
 
     /**

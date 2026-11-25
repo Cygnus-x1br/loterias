@@ -506,4 +506,151 @@ class BalancedBetGeneratorTest extends TestCase
         $this->assertSame(2, $createdBets2);
         $this->assertDatabaseHas('closings', ['id' => $closing2->id, 'status' => 'completed']);
     }
+
+    public function test_records_bets_accepted_with_relaxed_filters(): void
+    {
+        $user = User::factory()->create();
+
+        // Com a base 1..18 (9 pares e 9 ímpares), toda aposta de 15 tem pelo menos 6 pares.
+        // Pedir exatamente 3 pares só é atendido quando a tolerância chega a ±3.
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'method' => 'balanced',
+            'base_numbers' => range(1, 18),
+            'bet_size' => 15,
+            'planned_bets' => 3,
+            'parameters' => ['even_odd_balance' => [3, 3]],
+        ]);
+
+        app(ClosingGenerator::class)->generate($closing);
+        $closing->refresh();
+
+        $this->assertSame('completed', $closing->status);
+        $this->assertNotEmpty($closing->generation_warnings);
+        $this->assertStringContainsString('Equilíbrio Par/Ímpar', $closing->generation_warnings[0]);
+
+        foreach (Bet::where('closing_id', $closing->id)->get() as $bet) {
+            $this->assertStringContainsString('Filtro relaxado (tolerância de ±3)', (string) $bet->notes);
+        }
+    }
+
+    public function test_records_bets_generated_without_filters(): void
+    {
+        $user = User::factory()->create();
+
+        // Nenhuma aposta de 15 dezenas da base 1..18 pode ter 0 pares, nem com tolerância
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'method' => 'balanced',
+            'base_numbers' => range(1, 18),
+            'bet_size' => 15,
+            'planned_bets' => 2,
+            'parameters' => ['even_odd_balance' => [0, 0]],
+        ]);
+
+        app(ClosingGenerator::class)->generate($closing);
+        $closing->refresh();
+
+        $this->assertCount(1, $closing->generation_warnings);
+        $this->assertStringContainsString('sem os filtros do método equilibrado', $closing->generation_warnings[0]);
+
+        foreach (Bet::where('closing_id', $closing->id)->get() as $bet) {
+            $this->assertStringStartsWith('Gerada sem filtros', (string) $bet->notes);
+        }
+    }
+
+    public function test_bets_within_filters_have_no_warnings(): void
+    {
+        $user = User::factory()->create();
+
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'method' => 'balanced',
+            'base_numbers' => range(1, 25),
+            'bet_size' => 15,
+            'planned_bets' => 5,
+            'parameters' => ['even_odd_balance' => [6, 9]],
+        ]);
+
+        app(ClosingGenerator::class)->generate($closing);
+        $closing->refresh();
+
+        $this->assertNull($closing->generation_warnings);
+        $this->assertSame(0, Bet::where('closing_id', $closing->id)->whereNotNull('notes')->count());
+    }
+
+    public function test_complemented_bets_are_flagged_as_unfiltered(): void
+    {
+        $user = User::factory()->create();
+
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'method' => 'balanced',
+            'base_numbers' => range(1, 25),
+            'bet_size' => 15,
+            'planned_bets' => 4,
+            'parameters' => ['even_odd_balance' => [6, 9]],
+        ]);
+
+        $generator = app(ClosingGenerator::class);
+        $generator->generate($closing);
+        Bet::where('closing_id', $closing->id)->orderByDesc('id')->first()->delete();
+
+        $this->assertSame(1, $generator->completeBets($closing->refresh()));
+
+        $closing->refresh();
+        $this->assertStringContainsString('complementar', $closing->generation_warnings[0]);
+        $this->assertSame(1, Bet::where('closing_id', $closing->id)->where('notes', 'like', 'Aposta complementar%')->count());
+    }
+
+    public function test_resetting_closing_clears_generation_warnings(): void
+    {
+        $user = User::factory()->create();
+
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'method' => 'balanced',
+            'base_numbers' => range(1, 18),
+            'bet_size' => 15,
+            'planned_bets' => 1,
+            'parameters' => ['even_odd_balance' => [3, 3]],
+        ]);
+
+        $generator = app(ClosingGenerator::class);
+        $generator->generate($closing);
+        $this->assertNotEmpty($closing->refresh()->generation_warnings);
+
+        $generator->resetToDraft($closing);
+
+        $this->assertNull($closing->refresh()->generation_warnings);
+    }
+
+    public function test_repetition_quotas_follow_hypergeometric_probability(): void
+    {
+        $service = app(LotofacilStatisticsService::class);
+
+        // P(8) : P(9) : P(10) = 772.200 : 1.051.050 : 756.756 → 29,9 / 40,7 / 29,3 de 100
+        $this->assertSame([8 => 30, 9 => 41, 10 => 29], $service->calculateRepetitionQuotas(8, 10, 100));
+
+        $quotas = $service->calculateRepetitionQuotas(7, 11, 37);
+        $this->assertSame(37, array_sum($quotas));
+        $this->assertSame(9, array_search(max($quotas), $quotas, true));
+
+        // Para apostas de 18 dezenas a faixa possível de repetidas muda (mínimo 8, pois só há 10 fora do último sorteio)
+        $this->assertSame(0.0, $service->repetitionProbability(7, 18));
+        $this->assertSame(20, array_sum($service->calculateRepetitionQuotas(8, 12, 20, 18)));
+
+        // Faixa sem nenhuma quantidade possível: distribui igualmente
+        $this->assertSame([0 => 2, 1 => 2, 2 => 2], $service->calculateRepetitionQuotas(0, 2, 6));
+    }
+
+    public function test_repetition_probabilities_sum_to_one(): void
+    {
+        $service = app(LotofacilStatisticsService::class);
+
+        foreach ([15, 16, 18, 20] as $betSize) {
+            $total = array_sum(array_map(fn (int $k): float => $service->repetitionProbability($k, $betSize), range(0, 15)));
+            $this->assertEqualsWithDelta(1.0, $total, 1e-9, "Aposta de {$betSize} dezenas");
+        }
+    }
 }

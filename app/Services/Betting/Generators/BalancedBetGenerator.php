@@ -187,7 +187,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
 
                 if ($minRep <= $maxRep) {
                     $repeatedQuotas = app(LotofacilStatisticsService::class)->calculateRepetitionQuotas(
-                        $minRep, $maxRep, $plannedBets
+                        $minRep, $maxRep, $plannedBets, $betSize
                     );
                 }
             }
@@ -227,6 +227,11 @@ class BalancedBetGenerator implements BetGeneratorInterface
         $uniqueBets = [];
         $rejectionStats = [];
 
+        // Apostas aceitas fora das faixas pedidas: observação por aposta e contagem por filtro
+        $betNotes = [];
+        $relaxedByFilter = [];
+        $unfilteredCount = 0;
+
         // Expande as cotas em um array de "alvos" de repetição
         $repetitionTargets = [];
         foreach ($repeatedQuotas as $rep => $quota) {
@@ -252,7 +257,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
 
             // Tolerância dinâmica: a cada 500 tentativas, relaxamos um pouco as regras
             while ($attempts < $maxAttemptsPerBet) {
-                $tolerance = floor($attempts / 500);
+                $tolerance = intdiv($attempts, 500);
 
                 if ($targetRepetitions !== null && ! empty($lastDrawnNumbers)) {
                     $currentBet = $this->generateStratifiedCombination($repeatedPool, $nonRepeatedPool, $targetRepetitions, $betSize, $usageCount, $numberScores);
@@ -267,6 +272,16 @@ class BalancedBetGenerator implements BetGeneratorInterface
                     if ($this->historicalDrawFilter->isPastDraw($currentBet)) {
                         $rejectionStats['Combinação já sorteada em concurso anterior'] = ($rejectionStats['Combinação já sorteada em concurso anterior'] ?? 0) + 1;
                     } elseif ($this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures, $tolerance, $failedReason)) {
+                        $strictReason = null;
+                        if ($tolerance > 0 && ! $this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures, 0, $strictReason)) {
+                            $betNotes[implode('-', $currentBet)] = sprintf(
+                                'Filtro relaxado (tolerância de ±%d): %s fora da faixa pedida.',
+                                $tolerance,
+                                $strictReason
+                            );
+                            $relaxedByFilter[$strictReason] = ($relaxedByFilter[$strictReason] ?? 0) + 1;
+                        }
+
                         yield $currentBet;
                         $uniqueBets[] = $currentBet;
                         $generatedCount++;
@@ -301,6 +316,16 @@ class BalancedBetGenerator implements BetGeneratorInterface
                     }
                     sort($currentBet);
                     if (! in_array($currentBet, $uniqueBets, true) && ! $this->historicalDrawFilter->isPastDraw($currentBet)) {
+                        $strictReason = null;
+                        if (! $this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures, 0, $strictReason)) {
+                            $betNotes[implode('-', $currentBet)] = sprintf(
+                                'Gerada sem filtros: nenhuma combinação atendeu aos critérios em %d tentativas (%s fora da faixa pedida).',
+                                $maxAttemptsPerBet,
+                                $strictReason
+                            );
+                            $unfilteredCount++;
+                        }
+
                         yield $currentBet;
                         $uniqueBets[] = $currentBet;
                         $generatedCount++;
@@ -327,6 +352,46 @@ class BalancedBetGenerator implements BetGeneratorInterface
                 "Não foi possível gerar {$plannedBets} apostas equilibradas únicas com os parâmetros fornecidos. Foram geradas {$generatedCount}.".$reasonMsg
             );
         }
+
+        return [
+            'bet_notes' => $betNotes,
+            'warnings' => $this->buildWarnings($relaxedByFilter, $unfilteredCount, $generatedCount),
+        ];
+    }
+
+    /**
+     * Monta os avisos do fechamento sobre apostas aceitas fora das faixas pedidas.
+     *
+     * @param  array<string, int>  $relaxedByFilter
+     * @return array<int, string>
+     */
+    protected function buildWarnings(array $relaxedByFilter, int $unfilteredCount, int $generatedCount): array
+    {
+        $warnings = [];
+
+        if ($relaxedByFilter !== []) {
+            arsort($relaxedByFilter);
+            $filters = collect($relaxedByFilter)
+                ->map(fn (int $count, string $filter): string => "{$filter} ({$count})")
+                ->implode(', ');
+
+            $warnings[] = sprintf(
+                '%d de %d apostas foram aceitas com filtros relaxados, porque não havia combinações suficientes dentro das faixas pedidas: %s.',
+                array_sum($relaxedByFilter),
+                $generatedCount,
+                $filters
+            );
+        }
+
+        if ($unfilteredCount > 0) {
+            $warnings[] = sprintf(
+                '%d de %d apostas foram geradas sem os filtros do método equilibrado, porque nenhuma combinação atendeu aos critérios.',
+                $unfilteredCount,
+                $generatedCount
+            );
+        }
+
+        return $warnings;
     }
 
     /**

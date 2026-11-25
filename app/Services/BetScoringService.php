@@ -3,11 +3,20 @@
 namespace App\Services;
 
 use App\Models\HistoricalResult;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class BetScoringService
 {
+    /**
+     * Soma máxima dos pontos de todos os critérios (100·4 + 50·2 + 40 + 30 + 10·3 + 150·2).
+     */
+    public const RAW_MAX_SCORE = 900;
+
+    /**
+     * Escala em que o score é apresentado e filtrado (0 a 1000).
+     */
+    public const MAX_SCORE = 1000;
+
     private LotofacilStatisticsService $statisticsService;
 
     public function __construct(LotofacilStatisticsService $statisticsService)
@@ -17,6 +26,10 @@ class BetScoringService
 
     /**
      * Calcula o score de uma sequência de 15 dezenas (0 a 1000 pontos).
+     *
+     * O score mede o quanto a combinação se parece com padrões frequentes da série histórica.
+     * Ele não altera a probabilidade de acerto: todas as combinações são equiprováveis.
+     * Os pontos dos critérios somam no máximo RAW_MAX_SCORE e são convertidos para a escala 0–1000.
      */
     public function calculateScore(array $numbers, ?int $contextContestNumber = null): array
     {
@@ -40,11 +53,13 @@ class BetScoringService
         $totalScore = 0;
 
         // 1. Soma das Dezenas (Max 100)
+        // A soma de 15 dezenas entre 1 e 25 tem média 195 e desvio-padrão ≈ 18:
+        // as faixas são simétricas em torno da média (175–215 cobre ~74% dos sorteios).
         $sum = array_sum($numbers);
         $details['sum']['value'] = $sum;
-        if ($sum >= 180 && $sum <= 220) {
+        if ($sum >= 175 && $sum <= 215) {
             $details['sum']['points'] = 100;
-        } elseif (($sum >= 170 && $sum <= 179) || ($sum >= 221 && $sum <= 230)) {
+        } elseif (($sum >= 165 && $sum <= 174) || ($sum >= 216 && $sum <= 225)) {
             $details['sum']['points'] = 50;
         }
         $totalScore += $details['sum']['points'];
@@ -188,65 +203,62 @@ class BetScoringService
         $totalScore += $details['top_trios']['points'];
 
         // 9. Pares, 10. Trios, 11. Quadras Consecutivos (Top) (Max 30)
-        $analysisCache = Cache::get('lotofacil_advanced_analysis');
-        if ($analysisCache && isset($analysisCache['consecutive_sequences'])) {
-            $consecutiveTop = $analysisCache['consecutive_sequences'];
-            $topPairsCons = array_keys($consecutiveTop['top_pairs_consecutive'] ?? []);
-            $topTriosCons = array_keys($consecutiveTop['top_trios_consecutive'] ?? []);
-            $topQuadsCons = array_keys($consecutiveTop['top_quads_consecutive'] ?? []);
+        $consecutiveTop = $this->statisticsService->getConsecutiveSequencesAnalysis();
+        $topPairsCons = array_keys($consecutiveTop['top_pairs_consecutive'] ?? []);
+        $topTriosCons = array_keys($consecutiveTop['top_trios_consecutive'] ?? []);
+        $topQuadsCons = array_keys($consecutiveTop['top_quads_consecutive'] ?? []);
 
-            $myPairsCons = 0;
-            $myTriosCons = 0;
-            $myQuadsCons = 0;
+        $myPairsCons = 0;
+        $myTriosCons = 0;
+        $myQuadsCons = 0;
 
-            for ($i = 0; $i < $count - 1; $i++) {
-                if ($numbers[$i + 1] === $numbers[$i] + 1) {
-                    $pairStr = sprintf('%02d-%02d', $numbers[$i], $numbers[$i + 1]);
-                    if (in_array($pairStr, $topPairsCons)) {
-                        $myPairsCons++;
+        for ($i = 0; $i < $count - 1; $i++) {
+            if ($numbers[$i + 1] === $numbers[$i] + 1) {
+                $pairStr = sprintf('%02d-%02d', $numbers[$i], $numbers[$i + 1]);
+                if (in_array($pairStr, $topPairsCons)) {
+                    $myPairsCons++;
+                }
+                if ($i < $count - 2 && $numbers[$i + 2] === $numbers[$i] + 2) {
+                    $trioStr = sprintf('%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2]);
+                    if (in_array($trioStr, $topTriosCons)) {
+                        $myTriosCons++;
                     }
-                    if ($i < $count - 2 && $numbers[$i + 2] === $numbers[$i] + 2) {
-                        $trioStr = sprintf('%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2]);
-                        if (in_array($trioStr, $topTriosCons)) {
-                            $myTriosCons++;
-                        }
-                        if ($i < $count - 3 && $numbers[$i + 3] === $numbers[$i] + 3) {
-                            $quadStr = sprintf('%02d-%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2], $numbers[$i + 3]);
-                            if (in_array($quadStr, $topQuadsCons)) {
-                                $myQuadsCons++;
-                            }
+                    if ($i < $count - 3 && $numbers[$i + 3] === $numbers[$i] + 3) {
+                        $quadStr = sprintf('%02d-%02d-%02d-%02d', $numbers[$i], $numbers[$i + 1], $numbers[$i + 2], $numbers[$i + 3]);
+                        if (in_array($quadStr, $topQuadsCons)) {
+                            $myQuadsCons++;
                         }
                     }
                 }
             }
-            $details['top_consecutive_pairs']['value'] = $myPairsCons;
-            if ($myPairsCons >= 3) {
-                $details['top_consecutive_pairs']['points'] = 10;
-            } elseif ($myPairsCons >= 1) {
-                $details['top_consecutive_pairs']['points'] = 5;
-            }
-            $totalScore += $details['top_consecutive_pairs']['points'];
-
-            $details['top_consecutive_trios']['value'] = $myTriosCons;
-            if ($myTriosCons >= 2) {
-                $details['top_consecutive_trios']['points'] = 10;
-            } elseif ($myTriosCons === 1) {
-                $details['top_consecutive_trios']['points'] = 5;
-            }
-            $totalScore += $details['top_consecutive_trios']['points'];
-
-            $details['top_consecutive_quads']['value'] = $myQuadsCons;
-            if ($myQuadsCons >= 1) {
-                $details['top_consecutive_quads']['points'] = 10;
-            }
-            $totalScore += $details['top_consecutive_quads']['points'];
         }
+        $details['top_consecutive_pairs']['value'] = $myPairsCons;
+        if ($myPairsCons >= 3) {
+            $details['top_consecutive_pairs']['points'] = 10;
+        } elseif ($myPairsCons >= 1) {
+            $details['top_consecutive_pairs']['points'] = 5;
+        }
+        $totalScore += $details['top_consecutive_pairs']['points'];
+
+        $details['top_consecutive_trios']['value'] = $myTriosCons;
+        if ($myTriosCons >= 2) {
+            $details['top_consecutive_trios']['points'] = 10;
+        } elseif ($myTriosCons === 1) {
+            $details['top_consecutive_trios']['points'] = 5;
+        }
+        $totalScore += $details['top_consecutive_trios']['points'];
+
+        $details['top_consecutive_quads']['value'] = $myQuadsCons;
+        if ($myQuadsCons >= 1) {
+            $details['top_consecutive_quads']['points'] = 10;
+        }
+        $totalScore += $details['top_consecutive_quads']['points'];
 
         // 12. Ciclo das Dezenas (Max 150)
         $cycleData = $this->statisticsService->getDecadesCycleAnalysis($contextContestNumber);
         $missingNumbers = $cycleData['missing_numbers'] ?? [];
         $intersectCycle = count(array_intersect($numbers, $missingNumbers));
-        $details['cycle'] = ['points' => 0, 'value' => $intersectCycle];
+        $details['cycle'] = ['points' => 0, 'value' => $intersectCycle, 'heuristic' => true];
 
         // Se a aposta tem as dezenas que faltam (proporcionalmente), ganha pontos
         if (count($missingNumbers) > 0) {
@@ -264,7 +276,7 @@ class BetScoringService
         $topDelayed = array_slice($delayData, 0, 8); // Top 8 mais atrasadas
         $delayedNumbers = array_column($topDelayed, 'number');
         $intersectDelay = count(array_intersect($numbers, $delayedNumbers));
-        $details['delay'] = ['points' => 0, 'value' => $intersectDelay];
+        $details['delay'] = ['points' => 0, 'value' => $intersectDelay, 'heuristic' => true];
 
         if ($intersectDelay >= 5) {
             $details['delay']['points'] = 150;
@@ -289,11 +301,17 @@ class BetScoringService
             }
         }
 
+        $rawScore = $totalScore;
+        $totalScore = (int) round($rawScore * self::MAX_SCORE / self::RAW_MAX_SCORE);
+
         $classData = $this->getScoreClassification($totalScore);
 
         return [
             'total_score' => $totalScore,
-            'max_score' => 1000,
+            'max_score' => self::MAX_SCORE,
+            'raw_score' => $rawScore,
+            'raw_max_score' => self::RAW_MAX_SCORE,
+            'disclaimer' => 'O score mede semelhança com padrões históricos e não altera a probabilidade de acerto. Ciclo e atraso são critérios heurísticos.',
             'classification' => $classData['classification'],
             'color' => $classData['color'],
             'sum' => $sum,

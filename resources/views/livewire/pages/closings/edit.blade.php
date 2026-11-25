@@ -701,6 +701,7 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                 $closingUpdates['status'] = 'draft';
                 $closingUpdates['contest_number'] = null;
                 $closingUpdates['draw_date'] = null;
+                $closingUpdates['generation_warnings'] = null;
             }
 
             $this->closing->update($closingUpdates);

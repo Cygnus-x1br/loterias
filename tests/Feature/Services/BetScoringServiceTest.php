@@ -45,6 +45,13 @@ class BetScoringServiceTest extends TestCase
                     collect(['01-02-03' => 20, '04-05-06' => 15])
                 );
 
+                $mock->shouldReceive('getConsecutiveSequencesAnalysis')->andReturn([
+                    'summary' => [],
+                    'top_pairs_consecutive' => ['01-02' => 50, '03-04' => 40, '05-06' => 30],
+                    'top_trios_consecutive' => ['01-02-03' => 20, '04-05-06' => 15],
+                    'top_quads_consecutive' => ['01-02-03-04' => 10],
+                ]);
+
                 $mock->shouldReceive('getMostFrequentConsecutivePairs')->andReturn(
                     collect(['01-02' => 50, '03-04' => 40, '05-06' => 30])
                 );
@@ -117,5 +124,75 @@ class BetScoringServiceTest extends TestCase
 
         $result2 = $this->scoringService->calculateScore($numbers);
         $this->assertEquals(0, $result2['details']['never_drawn']['points']);
+    }
+
+    /**
+     * Monta 15 dezenas distintas entre 1 e 25 com a soma pedida (entre 120 e 270).
+     *
+     * @return array<int, int>
+     */
+    private function betWithSum(int $targetSum): array
+    {
+        $numbers = range(1, 15);
+        $missing = $targetSum - array_sum($numbers);
+
+        for ($i = 14; $i >= 0 && $missing > 0; $i--) {
+            $increase = min($missing, 10);
+            $numbers[$i] += $increase;
+            $missing -= $increase;
+        }
+
+        return $numbers;
+    }
+
+    public function test_sum_window_is_centered_on_the_expected_sum(): void
+    {
+        $expectedPoints = [
+            164 => 0,
+            165 => 50,
+            174 => 50,
+            175 => 100,
+            195 => 100,
+            215 => 100,
+            216 => 50,
+            225 => 50,
+            226 => 0,
+        ];
+
+        foreach ($expectedPoints as $sum => $points) {
+            $numbers = $this->betWithSum($sum);
+            $this->assertSame($sum, array_sum($numbers));
+
+            $result = $this->scoringService->calculateScore($numbers);
+            $this->assertSame($points, $result['details']['sum']['points'], "Soma {$sum}");
+        }
+    }
+
+    public function test_total_score_is_scaled_from_raw_points_to_one_thousand(): void
+    {
+        $result = $this->scoringService->calculateScore([1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 18, 20, 22, 23, 25]);
+
+        $rawPoints = array_sum(array_column($result['details'], 'points'));
+
+        $this->assertSame(BetScoringService::RAW_MAX_SCORE, $result['raw_max_score']);
+        $this->assertSame(1000, $result['max_score']);
+        $this->assertSame($rawPoints, $result['raw_score']);
+        $this->assertSame((int) round($rawPoints * 1000 / 900), $result['total_score']);
+    }
+
+    public function test_raw_max_score_matches_the_sum_of_criteria_maximums(): void
+    {
+        // soma, paridade, moldura, repetição (100 cada), ineditismo e top 10 (50 cada),
+        // pares (40), trios (30), consecutivos (10 + 10 + 10), ciclo e atraso (150 cada)
+        $this->assertSame(100 * 4 + 50 * 2 + 40 + 30 + 10 * 3 + 150 * 2, BetScoringService::RAW_MAX_SCORE);
+    }
+
+    public function test_cycle_and_delay_are_flagged_as_heuristics(): void
+    {
+        $result = $this->scoringService->calculateScore(range(1, 15));
+
+        $this->assertTrue($result['details']['cycle']['heuristic']);
+        $this->assertTrue($result['details']['delay']['heuristic']);
+        $this->assertStringContainsString('não altera a probabilidade', $result['disclaimer']);
     }
 }
