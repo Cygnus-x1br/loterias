@@ -266,7 +266,21 @@ new #[Layout('layouts.app', ['title' => 'Fechamentos'])] class extends Component
         }
 
         try {
-            $createdBets = app(ClosingGenerator::class)->generate($closing);
+            $generator = app(ClosingGenerator::class);
+
+            // Fechamentos grandes rodam em segundo plano; o progresso fica na página do fechamento
+            if ($generator->shouldQueue($closing)) {
+                $generator->dispatchGeneration($closing);
+
+                session()->flash(
+                    'success',
+                    'Geração iniciada em segundo plano. Acompanhe o progresso na página do fechamento.'
+                );
+
+                return;
+            }
+
+            $createdBets = $generator->generate($closing);
 
             session()->flash(
                 'success',

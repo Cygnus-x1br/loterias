@@ -2,6 +2,7 @@
 
 namespace App\Services\Betting;
 
+use App\Jobs\GenerateClosingBetsJob;
 use App\Models\Bet;
 use App\Models\Closing;
 use App\Models\HistoricalResult;
@@ -11,6 +12,7 @@ use App\Services\Betting\Generators\IntegralBetGenerator;
 use App\Services\Betting\Generators\RandomBetGenerator;
 use App\Services\Betting\Generators\ReducedBetGenerator;
 use App\Services\Betting\Generators\WheelBetGenerator;
+use App\Services\Betting\Math\Combinatorics;
 use App\Services\LotofacilStatisticsService;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -55,6 +57,71 @@ class ClosingGenerator
         }
 
         return app(self::$generators[$method]);
+    }
+
+    /**
+     * A partir desta quantidade de apostas a geração roda em segundo plano (fila).
+     */
+    public const QUEUE_THRESHOLD = 1000;
+
+    /**
+     * Quantidade de apostas que a geração deve produzir.
+     */
+    public function expectedBets(Closing $closing): int
+    {
+        if ($closing->method === 'integral') {
+            $base = count($closing->base_numbers ?? []);
+            $size = (int) $closing->bet_size;
+
+            return $base >= $size && $size > 0 ? Combinatorics::countCombinations($base, $size) : 0;
+        }
+
+        return (int) ($closing->planned_bets ?? 0);
+    }
+
+    public function shouldQueue(Closing $closing): bool
+    {
+        return $this->expectedBets($closing) >= self::QUEUE_THRESHOLD;
+    }
+
+    /**
+     * Valida e coloca a geração na fila, devolvendo o fechamento como "processing".
+     *
+     * As validações rodam antes para que erros de parâmetro apareçam na hora, não no job.
+     *
+     * @throws InvalidArgumentException
+     * @throws LogicException
+     */
+    public function dispatchGeneration(Closing $closing): void
+    {
+        $this->validateClosing($closing);
+        $this->resolveGenerator($closing->method)->validate($closing);
+
+        $token = ClosingGenerationProgress::begin($closing->id, $this->expectedBets($closing));
+
+        $closing->update(['status' => 'processing', 'generation_warnings' => null]);
+
+        GenerateClosingBetsJob::dispatch($closing, $token);
+    }
+
+    /**
+     * Cancela uma geração em andamento. Se o job ainda não começou, o fechamento volta a rascunho na hora.
+     */
+    public function cancelGeneration(Closing $closing): void
+    {
+        if ($closing->status !== 'processing') {
+            return;
+        }
+
+        if (ClosingGenerationProgress::isRunning($closing->id)) {
+            ClosingGenerationProgress::requestCancel($closing->id);
+
+            return;
+        }
+
+        // Sem job em execução (fila parada ou ainda não iniciado): o token apagado torna o job obsoleto
+        ClosingGenerationProgress::finish($closing->id);
+        $closing->update(['status' => 'draft']);
     }
 
     /**
@@ -124,6 +191,15 @@ class ClosingGenerator
 
                     $createdBetsByNumbers[$this->numbersKey($combination)] = $bet;
                     $createdBets++;
+
+                    // Progresso e cancelamento só valem para gerações acompanhadas (em segundo plano)
+                    if ($createdBets % ClosingGenerationProgress::REPORT_EVERY === 0 && ClosingGenerationProgress::isTracked($closing->id)) {
+                        ClosingGenerationProgress::report($closing->id, $createdBets);
+
+                        if (ClosingGenerationProgress::cancelRequested($closing->id)) {
+                            throw new GenerationCancelledException;
+                        }
+                    }
                 }
 
                 if ($createdBets === 0) {
@@ -147,6 +223,12 @@ class ClosingGenerator
 
                 return $createdBets;
             });
+        } catch (GenerationCancelledException $exception) {
+            // A transação foi revertida: nenhuma aposta ficou salva
+            $closing->refresh();
+            $closing->update(['status' => 'draft']);
+
+            throw $exception;
         } catch (Throwable $exception) {
             // Se uma exceção ocorrer, a transação já foi revertida.
             // Precisamos recarregar o modelo para garantir que ele reflita o estado atual do DB

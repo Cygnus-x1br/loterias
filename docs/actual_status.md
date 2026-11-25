@@ -9,7 +9,7 @@ Este documento compara o que está implementado no código com a especificação
 ## 1. Visão geral
 
 - **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local sem Docker; MariaDB no Docker e em produção.
-- **Testes:** 216 testes PHPUnit, todos passando.
+- **Testes:** 228 testes PHPUnit, todos passando.
 - **Histórico de desenvolvimento:** 49 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
 
 ### 1.1 Modelo de dados
@@ -96,8 +96,8 @@ Legenda: ✅ implementado · 🟡 parcial · ❌ não implementado
 | 24 | Comparação de algoritmos | ❌ | — |
 | 25 | Custo e orçamento | ✅ | Configuração por usuário, custo do fechamento, `/financeiro` (ROI por concurso, fechamento e aposta) |
 | 26 | Relatórios e transparência | ✅ | `ClosingTransparencyReportService` e seção "Relatório de transparência" na tela do fechamento: método, grupo-base, apostas, custo, parâmetros, faixa de score, garantia e condições, cenários avaliados, método de validação, limitações, aleatoriedade e aviso de não-previsão. A semente aparece como "não registrada" até a implementação do requisito 3.11 |
-| 27 | Testes | ✅ | 216 testes (Feature e Unit) |
-| 28 | Desempenho | 🟡 | Geração sob demanda, bitmasks e enumeração exata (≈ 0,1 s por aposta); a geração de fechamentos roda de forma síncrona, sem progresso nem cancelamento |
+| 27 | Testes | ✅ | 228 testes (Feature e Unit) |
+| 28 | Desempenho | 🟡 | Geração sob demanda, bitmasks e enumeração exata (≈ 0,1 s por aposta). Fechamentos com 1.000 apostas ou mais (inclui o integral com 20 dezenas ou mais) rodam em segundo plano (`GenerateClosingBetsJob`) com barra de progresso, cancelamento sem deixar apostas parciais e mensagem de erro; exigem o worker da fila ativo. Faltam: informar o tempo e os cenários do modo exato, paralelização e progresso nas auditorias e no otimizador |
 | 29 | Classificação Exato / Heurístico / Simulado | ✅ | Enum `ResultClassification` (Exato, Ótimo comprovado, Viável, Heurístico, Simulado) e selo `<x-result-badge>` no relatório, na chance real de premiação (exato), na auditoria combinatória (exata ou simulada), na auditoria consolidada, no otimizador (heurístico) e no Monte Carlo (simulado); o backtesting é rotulado como resultado histórico. Ciclo, atraso e temperatura seguem rotulados como descritivos |
 | 30 | Regras de comunicação | ✅ | Textos revisados: o otimizador não fala mais em "jogos mais fortes"; a verificação por Monte Carlo deixou de dizer "Garante" e mostra "Sem falhas na amostra"; o Monte Carlo "estima" em vez de "prever"; os textos educativos descrevem a garantia como condicional. Score e temperatura continuam com aviso de que não alteram a probabilidade |
 
@@ -174,7 +174,7 @@ Verificações feitas contra a série real (3.776 concursos) e por enumeração 
 
 1. **Série histórica sem controle de acesso:** qualquer usuário autenticado pode criar, editar e excluir sorteios em `/sorteios`. Como os dados são globais, isso afeta a conferência, as estatísticas e o financeiro de todos. Falta um papel de administrador.
 2. **Autorização espalhada:** não há Policies; as verificações de dono e compartilhamento ficam no `mount()` de cada página Volt.
-3. **Geração síncrona:** fechamentos grandes (integral com 20 ou mais dezenas = 15.504 ou mais apostas) rodam na requisição web e podem estourar o timeout. Só a auditoria consolidada usa fila.
+3. **Geração em segundo plano exige worker:** fechamentos com 1.000 apostas ou mais usam a fila (`composer dev` já sobe o `queue:listen`; em produção o contêiner `loterias_queue_prod`). Sem worker, o fechamento fica "Na fila" até ser cancelado. Auditoria combinatória e otimizador ainda rodam na requisição.
 4. **Faixas de score salvas:** fechamentos criados antes da nova escala (0–1000 real) podem ter `score_range` calibrado na escala antiga; o total agora sai cerca de 11% maior para os mesmos critérios.
 5. **Monte Carlo:** a auditoria por amostragem marca "garantia confirmada" com base em amostra, e a simulação financeira usa prêmios fixos estimados para 14 e 15 pontos.
 6. **Após importar a série histórica:** rodar `php artisan lotofacil:calculate-scores` (o seeder grava sem calcular score e ciclo) e `php artisan lotofacil:indications` se a importação não passou pelo model. O `DatabaseSeeder` cria apenas o usuário de desenvolvimento; a série exige `php artisan db:seed --class=HistoricalResultSeeder`.
@@ -199,7 +199,7 @@ Em ordem de prioridade:
    - [ ] Tela com P(X=k) de uma aposta simples e apostas equivalentes C(m,15) com custo.
    - [ ] Distribuição completa da melhor pontuação e cenários de menor pontuação.
 4. **Desempenho** (Item 28)
-   - [ ] Mover a geração de fechamentos grandes para jobs, com progresso e cancelamento.
+   - [x] Mover a geração de fechamentos grandes para jobs, com progresso e cancelamento (limite de 1.000 apostas em `ClosingGenerator::QUEUE_THRESHOLD`; requer o worker da fila).
 5. **Critério das dezenas menos indicadas**
    - [ ] Reavaliar o acompanhamento após 100 concursos conferidos e decidir se a dupla avaliação continua na sugestão.
 6. **Otimização avançada** (Itens 12 a 14 e 24)

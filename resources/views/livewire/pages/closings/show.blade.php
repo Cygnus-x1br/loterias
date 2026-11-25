@@ -2,6 +2,7 @@
 
 use App\Models\Closing;
 use App\Models\HistoricalResult;
+use App\Services\Betting\ClosingGenerationProgress;
 use App\Services\Betting\ClosingGenerator;
 use App\Services\Betting\ClosingProbabilityService;
 use App\Services\LotofacilStatisticsService;
@@ -404,7 +405,17 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         }
 
         try {
-            $createdBets = app(ClosingGenerator::class)->generate($this->closing);
+            $generator = app(ClosingGenerator::class);
+
+            // Fechamentos grandes rodam em segundo plano, com progresso e cancelamento
+            if ($generator->shouldQueue($this->closing)) {
+                $generator->dispatchGeneration($this->closing);
+                $this->generationSuccess = 'Geração iniciada em segundo plano. Você pode acompanhar o progresso e cancelar aqui.';
+
+                return;
+            }
+
+            $createdBets = $generator->generate($this->closing);
             $this->generationSuccess = "{$createdBets} aposta(s) gerada(s) com sucesso.";
             $this->checkBaseNumbersCoverage();
         } catch (\InvalidArgumentException|\LogicException $exception) {
@@ -415,6 +426,20 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         } finally {
             $this->closing->refresh();
         }
+    }
+
+    /**
+     * Cancela uma geração em segundo plano; nenhuma aposta parcial fica salva.
+     */
+    public function cancelGeneration(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode cancelar a geração.');
+        }
+
+        $this->closing->refresh();
+        app(ClosingGenerator::class)->cancelGeneration($this->closing);
+        $this->closing->refresh();
     }
 
     /**
@@ -693,6 +718,12 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                     app(ClosingProbabilityService::class)->cached($this->allBetNumbers()),
                     $this->combinatorialCoverage,
                 )
+                : null,
+            'generationProgress' => $this->closing->status === 'processing'
+                ? ClosingGenerationProgress::snapshot($this->closing->id)
+                : null,
+            'backgroundGenerationError' => $this->closing->status === 'failed'
+                ? ClosingGenerationProgress::error($this->closing->id)
                 : null,
             'canCalculateProbabilities' => $betsCount > 0 && $betsCount <= ClosingProbabilityService::MAX_BETS,
             'friends' => $friends,
@@ -978,6 +1009,47 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         @endif
                     </div>
                 </div>
+
+                @if ($generationProgress)
+                    <div class="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4" wire:poll.2s data-generation-progress>
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <p class="text-sm font-semibold text-sky-900">
+                                    @if ($generationProgress['cancelling'])
+                                        Cancelando a geração…
+                                    @elseif ($generationProgress['running'])
+                                        Gerando apostas em segundo plano…
+                                    @else
+                                        Na fila, aguardando o processamento…
+                                    @endif
+                                </p>
+                                <p class="mt-1 text-xs text-sky-800">
+                                    {{ number_format($generationProgress['created'], 0, ',', '.') }} de {{ number_format($generationProgress['expected'], 0, ',', '.') }} apostas
+                                    ({{ $generationProgress['percent'] }}%). As apostas só ficam salvas quando a geração termina.
+                                </p>
+                            </div>
+                            @if ($closing->user_id === Auth::id() && ! $generationProgress['cancelling'])
+                                <button
+                                    type="button"
+                                    wire:click="cancelGeneration"
+                                    wire:confirm="Cancelar a geração? Nenhuma aposta será salva."
+                                    class="inline-flex items-center rounded-xl border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                                >
+                                    Cancelar geração
+                                </button>
+                            @endif
+                        </div>
+                        <div class="mt-3 h-2 w-full rounded-full bg-sky-100">
+                            <div class="h-2 rounded-full bg-sky-500 transition-all" style="width: {{ $generationProgress['percent'] }}%"></div>
+                        </div>
+                    </div>
+                @endif
+
+                @if ($backgroundGenerationError)
+                    <div class="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4">
+                        <p class="text-sm leading-6 text-rose-800">{{ $backgroundGenerationError }}</p>
+                    </div>
+                @endif
 
                 @if ($generationError || $checkError)
                     <div class="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4">
