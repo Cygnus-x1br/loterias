@@ -179,111 +179,16 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
 
     public function generateStatisticalBaseNumbers(int $totalBase = 18, int $repetitions = 9): void
     {
-        $service = app(LotofacilStatisticsService::class);
-        $lastContestData = $service->getLastContestWithSum();
-        $lastDrawn = $lastContestData['result']['drawn_numbers'] ?? [];
-        $frequencies = $service->getNumberFrequencies()->toArray();
-        
-        $cycleAnalysis = $service->getDecadesCycleAnalysis();
-        $delayAnalysis = collect($service->getCurrentDelayAnalysis())->keyBy('number');
+        try {
+            $suggestion = app(\App\Services\BaseNumbersSuggestionService::class)->suggest($totalBase, $repetitions);
+        } catch (\InvalidArgumentException $exception) {
+            $this->addError('base_numbers', $exception->getMessage());
 
-        // Cálculo da Projeção de Ciclo
-        $missingNumbers = $cycleAnalysis['missing_numbers'] ?? [];
-        $avgCycle = $cycleAnalysis['average_cycle_length'] ?: 4.7;
-        $currentContests = $cycleAnalysis['contests_in_current_cycle'] ?: 1;
-        $estimatedRemaining = max(1.0, $avgCycle - $currentContests);
-        $cycleBoost = count($missingNumbers) > 0 ? (count($missingNumbers) / $estimatedRemaining) : 0;
-
-        // 1. Repetidas
-        $selectedRepeated = [];
-        if (! empty($lastDrawn) && $repetitions > 0) {
-            $ranked = $lastDrawn;
-            usort($ranked, function ($a, $b) use ($frequencies) {
-                $freqA = $frequencies[$a] ?? 0;
-                $freqB = $frequencies[$b] ?? 0;
-                if ($freqA === $freqB) {
-                    return random_int(-1, 1);
-                }
-                return $freqB <=> $freqA;
-            });
-            $pool = array_slice($ranked, 0, min(count($ranked), $repetitions + 4));
-            shuffle($pool);
-            $selectedRepeated = array_slice($pool, 0, min($repetitions, count($lastDrawn)));
+            return;
         }
 
-        // 2. Novas dezenas com filtros estatísticos
-        $neededNewCount = max(0, $totalBase - count($selectedRepeated));
-        $allNumbers = range(1, 25);
-        $nonDrawnNumbers = array_values(array_diff($allNumbers, $lastDrawn));
-        $frameNumbers = [1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25];
-        $frameSet = array_flip($frameNumbers);
-
-        $scoredCandidates = [];
-        foreach ($nonDrawnNumbers as $num) {
-            $score = 0;
-            $freq = $frequencies[$num] ?? 0;
-            $score += $freq * 0.1;
-
-            // Bônus de Atraso
-            $delay = $delayAnalysis->get($num)['delay'] ?? 1;
-            $score += $delay * 2; 
-
-            // Bônus do ciclo
-            if (in_array($num, $missingNumbers)) {
-                $score += ($cycleBoost * 3); 
-            }
-
-            $currentEvens = count(array_filter($selectedRepeated, fn ($n) => $n % 2 === 0));
-            $currentOdds = count($selectedRepeated) - $currentEvens;
-            $isEven = ($num % 2 === 0);
-
-            if ($currentEvens < $currentOdds && $isEven) {
-                $score += 15;
-            } elseif ($currentOdds <= $currentEvens && ! $isEven) {
-                $score += 15;
-            }
-
-            $currentFrame = count(array_filter($selectedRepeated, fn ($n) => isset($frameSet[$n])));
-            $isFrame = isset($frameSet[$num]);
-            $targetRatio = 10 / 15;
-            $currentRatio = count($selectedRepeated) > 0 ? $currentFrame / count($selectedRepeated) : 0.66;
-
-            if ($currentRatio < $targetRatio && $isFrame) {
-                $score += 12;
-            } elseif ($currentRatio >= $targetRatio && ! $isFrame) {
-                $score += 12;
-            }
-
-            $scoredCandidates[] = [
-                'number' => $num,
-                'score' => $score + mt_rand(0, 5),
-            ];
-        }
-
-        usort($scoredCandidates, fn ($a, $b) => $b['score'] <=> $a['score']);
-        $selectedNew = array_slice(array_column($scoredCandidates, 'number'), 0, $neededNewCount);
-
-        $generatedGroup = array_merge($selectedRepeated, $selectedNew);
-        $this->setBaseNumbersFromResult($generatedGroup, true);
-
-        sort($selectedRepeated);
-        sort($selectedNew);
-
-        $delayedNumbers = $delayAnalysis->sortByDesc('delay')->take(8)->pluck('number')->toArray();
-
-        $this->statisticalReport = [
-            'total_base' => count($generatedGroup),
-            'repetitions' => count($selectedRepeated),
-            'new_numbers' => count($selectedNew),
-            'repeated_list' => $selectedRepeated,
-            'new_list' => $selectedNew,
-            'cycle_numbers' => $missingNumbers,
-            'delayed_numbers' => $delayedNumbers,
-            'criteria' => [
-                'repeated' => "Foram selecionadas " . count($selectedRepeated) . " dezenas do concurso anterior priorizando a maior frequência geral histórica.",
-                'new' => "Foram selecionadas " . count($selectedNew) . " dezenas baseando-se na frequência geral, no maior atraso atual e na projeção de fechamento do ciclo (peso maior para as " . count($missingNumbers) . " dezenas faltantes), equilibradas com a proporção ideal de pares/ímpares e moldura/centro."
-            ]
-        ];
+        $this->setBaseNumbersFromResult($suggestion['numbers'], true);
+        $this->statisticalReport = $suggestion['report'];
     }
 
     public function rules(): array
@@ -949,7 +854,7 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
 
             <div class="mt-6 flex flex-wrap justify-end gap-3">
                 {{-- Botão de Sugestão Estatística Avançada --}}
-                <div x-data="{ open: false, totalBase: 18, repetitions: 9 }" class="relative">
+                <div x-data="{ open: false, totalBase: 18, repetitions: 9 }" x-effect="repetitions = Math.min(Math.max(Number(repetitions), Math.max(0, Number(totalBase) - 10)), Math.min(15, Number(totalBase)))" class="relative">
                     <button
                         type="button"
                         @click="open = !open"
@@ -1007,7 +912,7 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                                 </div>
                                 <input
                                     type="range"
-                                    min="0"
+                                    :min="Math.max(0, totalBase - 10)"
                                     :max="Math.min(15, totalBase)"
                                     step="1"
                                     x-model="repetitions"
@@ -1073,6 +978,11 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                     <p class="text-sm text-slate-600 mb-4">
                         A seleção das <strong>{{ $statisticalReport['total_base'] }} dezenas</strong> foi baseada nos seguintes critérios estatísticos:
                     </p>
+                    @if(! empty($statisticalReport['adjustment']))
+                        <p class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                            {{ $statisticalReport['adjustment'] }}
+                        </p>
+                    @endif
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="rounded-xl bg-white p-4 border border-emerald-100 shadow-sm">
                             <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between">

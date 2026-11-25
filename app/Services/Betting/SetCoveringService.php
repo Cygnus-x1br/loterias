@@ -14,6 +14,7 @@ class SetCoveringService
      * @param  int  $guaranteePoints  Quantidade de acertos que queremos garantir (ex: 14).
      * @param  int  $guaranteeHits  Condição: "se acertar X no grupo-base" (ex: 15).
      * @param  int|null  $budget  Limite máximo de apostas (se nulo, vai até 100% de cobertura ou memória estourar).
+     * @param  (callable(array<int, int>): bool)|null  $excludeCandidate  Retorna true para apostas candidatas que não podem ser usadas (ex: já sorteadas).
      * @return array{
      *     bets: array,
      *     scenarios_covered: int,
@@ -26,7 +27,8 @@ class SetCoveringService
         int $betSize = 15,
         int $guaranteePoints = 14,
         int $guaranteeHits = 15,
-        ?int $budget = null
+        ?int $budget = null,
+        ?callable $excludeCandidate = null
     ): array {
         // Trava de segurança solicitada (limite 23)
         if (count($baseNumbers) > 23) {
@@ -60,6 +62,10 @@ class SetCoveringService
         // Todas as combinações de tamanho $betSize do $baseNumbers
         $candidates = [];
         foreach (Combinatorics::combinations($baseNumbers, $betSize) as $candidate) {
+            if ($excludeCandidate !== null && $excludeCandidate($candidate)) {
+                continue;
+            }
+
             $candidates[] = [
                 'numbers' => $candidate,
                 'mask' => $this->arrayToBitmask($candidate),

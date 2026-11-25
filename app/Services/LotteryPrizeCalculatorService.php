@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Services\Betting\Math\Combinatorics;
+
 class LotteryPrizeCalculatorService
 {
     public function __construct(
@@ -49,66 +51,33 @@ class LotteryPrizeCalculatorService
     }
 
     /**
-     * Retorna a matriz de premiações múltiplas (tabela de equivalência).
-     * Retorna o array de quantos prêmios de cada categoria o jogador leva
-     * dado o $betSize (15 a 20 dezenas marcadas no bilhete) e $hits (dezenas acertadas).
+     * Retorna quantos prêmios de cada categoria uma aposta múltipla recebe.
      *
-     * As chaves do array retornado correspondem à categoria de prêmio (15 a 11 pontos).
+     * Uma aposta com $betSize dezenas equivale a C($betSize, 15) apostas simples.
+     * Se $hits dezenas marcadas foram sorteadas, a quantidade de apostas simples
+     * com exatamente k acertos é C($hits, k) · C($betSize − $hits, 15 − k).
      * Ex: 16 dezenas marcadas e acerto de 15 -> 1 prêmio de 15, 15 de 14.
+     *
+     * @return array<int, int> Chave: categoria (15 a 11 pontos), valor: quantidade de prêmios.
      */
     public function calculatePrizes(int $betSize, int $hits): array
     {
-        if ($hits < 11 || $betSize < 15 || $betSize > 20) {
+        if ($hits < 11 || $hits > 15 || $betSize < 15 || $betSize > 20 || $hits > $betSize) {
             return [];
         }
 
-        // Matriz de prêmios: [betSize][hits] = [categoria => quantidade]
-        $matrix = [
-            15 => [
-                15 => [15 => 1],
-                14 => [14 => 1],
-                13 => [13 => 1],
-                12 => [12 => 1],
-                11 => [11 => 1],
-            ],
-            16 => [
-                15 => [15 => 1, 14 => 15],
-                14 => [14 => 2, 13 => 14],
-                13 => [13 => 3, 12 => 13],
-                12 => [12 => 4, 11 => 12],
-                11 => [11 => 5],
-            ],
-            17 => [
-                15 => [15 => 1, 14 => 30, 13 => 105],
-                14 => [14 => 3, 13 => 42, 12 => 91],
-                13 => [13 => 6, 12 => 52, 11 => 78],
-                12 => [12 => 10, 11 => 60],
-                11 => [11 => 15],
-            ],
-            18 => [
-                15 => [15 => 1, 14 => 45, 13 => 315, 12 => 455],
-                14 => [14 => 4, 13 => 84, 12 => 364, 11 => 364],
-                13 => [13 => 10, 12 => 130, 11 => 390],
-                12 => [12 => 20, 11 => 200],
-                11 => [11 => 35],
-            ],
-            19 => [
-                15 => [15 => 1, 14 => 60, 13 => 630, 12 => 1820, 11 => 1365],
-                14 => [14 => 5, 13 => 140, 12 => 910, 11 => 1820],
-                13 => [13 => 15, 12 => 260, 11 => 1170],
-                12 => [12 => 35, 11 => 460],
-                11 => [11 => 70],
-            ],
-            20 => [
-                15 => [15 => 1, 14 => 75, 13 => 1050, 12 => 4550, 11 => 6825],
-                14 => [14 => 6, 13 => 210, 12 => 1820, 11 => 5460],
-                13 => [13 => 21, 12 => 455, 11 => 2730],
-                12 => [12 => 56, 11 => 910],
-                11 => [11 => 126],
-            ],
-        ];
+        $prizes = [];
 
-        return $matrix[$betSize][$hits] ?? [];
+        for ($category = 15; $category >= 11; $category--) {
+            $quantity = Combinatorics::countCombinations($hits, $category)
+                * Combinatorics::countCombinations($betSize - $hits, 15 - $category);
+
+            if ($quantity > 0) {
+                $prizes[$category] = $quantity;
+            }
+        }
+
+        return $prizes;
     }
 
     /**

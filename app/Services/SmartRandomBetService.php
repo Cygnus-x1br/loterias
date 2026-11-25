@@ -2,12 +2,15 @@
 
 namespace App\Services;
 
-use App\Models\HistoricalResult;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Betting\HistoricalDrawFilter;
 
 class SmartRandomBetService
 {
     private const FRAME_NUMBERS = [1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 22, 23, 24, 25];
+
+    public function __construct(
+        private HistoricalDrawFilter $historicalDrawFilter
+    ) {}
 
     /**
      * Gera uma combinação de 15 dezenas aleatórias que respeitam os padrões estatísticos mais comuns (Rejection Sampling).
@@ -16,25 +19,35 @@ class SmartRandomBetService
      */
     public function generateSmartBet(): array
     {
-        $historicalHashes = $this->getHistoricalHashes();
-
         $attempts = 0;
         $maxAttempts = 5000; // Proteção contra loop infinito
 
         while ($attempts < $maxAttempts) {
             $attempts++;
 
-            $numbers = range(1, 25);
-            shuffle($numbers);
-            $bet = array_slice($numbers, 0, 15);
-            sort($bet);
+            $bet = $this->randomBet();
 
-            if ($this->isValidPattern($bet) && ! $this->isAlreadyDrawn($bet, $historicalHashes)) {
+            if ($this->isValidPattern($bet) && ! $this->historicalDrawFilter->isPastDraw($bet)) {
                 return $bet;
             }
         }
 
-        // Fallback se por algum motivo bater no limite de tentativas (muito improvável)
+        // Fallback se por algum motivo bater no limite de tentativas (muito improvável):
+        // abre mão do padrão estatístico, mas nunca devolve uma combinação já sorteada.
+        do {
+            $bet = $this->randomBet();
+        } while ($this->historicalDrawFilter->isPastDraw($bet));
+
+        return $bet;
+    }
+
+    /**
+     * Sorteia 15 dezenas distintas entre 1 e 25, em ordem crescente.
+     *
+     * @return array<int, int>
+     */
+    private function randomBet(): array
+    {
         $numbers = range(1, 25);
         shuffle($numbers);
         $bet = array_slice($numbers, 0, 15);
@@ -157,39 +170,5 @@ class SmartRandomBetService
         }
 
         return true;
-    }
-
-    /**
-     * Verifica se a combinação já foi sorteada historicamente.
-     */
-    private function isAlreadyDrawn(array $bet, array $historicalHashes): bool
-    {
-        $hash = implode('-', $bet);
-
-        return isset($historicalHashes[$hash]);
-    }
-
-    /**
-     * Retorna os hashes de todos os sorteios históricos para evitar repetição.
-     * Usa cache para não penalizar o banco.
-     */
-    private function getHistoricalHashes(): array
-    {
-        return Cache::rememberForever('lotofacil_historical_hashes', function () {
-            $results = HistoricalResult::all(['drawn_numbers']);
-            $hashes = [];
-
-            foreach ($results as $result) {
-                $numbers = is_array($result->drawn_numbers) ? $result->drawn_numbers : json_decode((string) $result->drawn_numbers, true);
-                if (is_array($numbers)) {
-                    $numbers = array_map('intval', $numbers);
-                    sort($numbers);
-                    $hash = implode('-', $numbers);
-                    $hashes[$hash] = true;
-                }
-            }
-
-            return $hashes;
-        });
     }
 }

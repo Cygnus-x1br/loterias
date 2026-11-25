@@ -85,8 +85,65 @@ class LotteryPrizeCalculatorServiceTest extends TestCase
         $total = $this->service->calculateTotalPrizeAmount(16, 14, $payouts);
         $this->assertEquals(3490.00, $total);
 
-        // 4. Múltipla (18 dezenas, acerto de 12) => 20 de 12 (14 * 20 = 280) e 200 de 11 (200 * 7 = 1400) = R$ 1.680,00
+        // 4. Múltipla (18 dezenas, acerto de 12) => 20 de 12 (14 * 20 = 280) e 180 de 11 (180 * 7 = 1260) = R$ 1.540,00
         $total = $this->service->calculateTotalPrizeAmount(18, 12, $payouts);
-        $this->assertEquals(1680.00, $total);
+        $this->assertEquals(1540.00, $total);
+    }
+
+    public function test_calculate_prizes_for_twelve_hits_on_large_bets(): void
+    {
+        // C(12,11) · C(m − 12, 4): 18 → 12·15 = 180, 19 → 12·35 = 420, 20 → 12·70 = 840
+        $this->assertSame([12 => 20, 11 => 180], $this->service->calculatePrizes(18, 12));
+        $this->assertSame([12 => 35, 11 => 420], $this->service->calculatePrizes(19, 12));
+        $this->assertSame([12 => 56, 11 => 840], $this->service->calculatePrizes(20, 12));
+    }
+
+    public function test_prizes_add_up_to_simple_bets_with_eleven_or_more_hits(): void
+    {
+        foreach (range(15, 20) as $betSize) {
+            foreach (range(11, 15) as $hits) {
+                $simpleBetsWithPrize = 0;
+
+                // Enumera todas as apostas simples de 15 contidas na aposta e conta as premiadas
+                $marked = range(1, $betSize);
+                $drawnInsideBet = array_flip(range(1, $hits));
+                foreach ($this->combinations($marked, 15) as $simpleBet) {
+                    $matches = count(array_filter($simpleBet, fn (int $n): bool => isset($drawnInsideBet[$n])));
+                    if ($matches >= 11) {
+                        $simpleBetsWithPrize++;
+                    }
+                }
+
+                $this->assertSame(
+                    $simpleBetsWithPrize,
+                    array_sum($this->service->calculatePrizes($betSize, $hits)),
+                    "Aposta de {$betSize} dezenas com {$hits} acertos"
+                );
+            }
+        }
+    }
+
+    public function test_calculate_prizes_returns_empty_for_invalid_input(): void
+    {
+        $this->assertSame([], $this->service->calculatePrizes(15, 10));
+        $this->assertSame([], $this->service->calculatePrizes(21, 15));
+        $this->assertSame([], $this->service->calculatePrizes(15, 16));
+    }
+
+    /**
+     * @param  array<int, int>  $set
+     * @return \Generator<int, array<int, int>>
+     */
+    private function combinations(array $set, int $size, int $offset = 0, array $current = []): \Generator
+    {
+        if (count($current) === $size) {
+            yield $current;
+
+            return;
+        }
+
+        for ($i = $offset; $i <= count($set) - ($size - count($current)); $i++) {
+            yield from $this->combinations($set, $size, $i + 1, [...$current, $set[$i]]);
+        }
     }
 }

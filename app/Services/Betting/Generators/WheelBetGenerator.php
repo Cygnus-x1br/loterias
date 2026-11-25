@@ -3,12 +3,17 @@
 namespace App\Services\Betting\Generators;
 
 use App\Models\Closing;
+use App\Services\Betting\HistoricalDrawFilter;
 use App\Services\LotofacilStatisticsService;
 use InvalidArgumentException;
 use LogicException;
 
 class WheelBetGenerator implements BetGeneratorInterface
 {
+    public function __construct(
+        protected HistoricalDrawFilter $historicalDrawFilter
+    ) {}
+
     /**
      * Valida os parâmetros específicos para o sistema de roda.
      *
@@ -125,7 +130,7 @@ class WheelBetGenerator implements BetGeneratorInterface
             $currentBet = array_merge($fixedNumbers, $variableCombination);
             sort($currentBet); // Garante ordem para comparação de unicidade
 
-            if (in_array($currentBet, $uniqueBets, true)) {
+            if (in_array($currentBet, $uniqueBets, true) || $this->historicalDrawFilter->isPastDraw($currentBet)) {
                 continue;
             }
 

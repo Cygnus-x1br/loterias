@@ -3,6 +3,7 @@
 namespace App\Services\Betting\Generators;
 
 use App\Models\Closing;
+use App\Services\Betting\HistoricalDrawFilter;
 use InvalidArgumentException;
 use LogicException;
 
@@ -13,6 +14,10 @@ class RandomBetGenerator implements BetGeneratorInterface
      * e evitar loops infinitos em cenários extremos.
      */
     protected const MAX_ATTEMPTS_MULTIPLIER = 30;
+
+    public function __construct(
+        protected HistoricalDrawFilter $historicalDrawFilter
+    ) {}
 
     public function validate(Closing $closing): void
     {
@@ -74,6 +79,11 @@ class RandomBetGenerator implements BetGeneratorInterface
             }
 
             $generated[$key] = true;
+
+            if ($this->historicalDrawFilter->isPastDraw($combination)) {
+                continue;
+            }
+
             $count++;
 
             yield $combination;

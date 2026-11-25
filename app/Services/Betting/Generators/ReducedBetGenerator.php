@@ -3,6 +3,7 @@
 namespace App\Services\Betting\Generators;
 
 use App\Models\Closing;
+use App\Services\Betting\HistoricalDrawFilter;
 use App\Services\Betting\SetCoveringService;
 use Generator;
 use InvalidArgumentException;
@@ -10,6 +11,10 @@ use LogicException;
 
 class ReducedBetGenerator implements BetGeneratorInterface
 {
+    public function __construct(
+        protected HistoricalDrawFilter $historicalDrawFilter
+    ) {}
+
     /**
      * Valida os parâmetros específicos para o fechamento reduzido.
      *
@@ -96,7 +101,8 @@ class ReducedBetGenerator implements BetGeneratorInterface
             betSize: $betSize,
             guaranteePoints: $guaranteePoints,
             guaranteeHits: $guaranteeHits,
-            budget: $budget
+            budget: $budget,
+            excludeCandidate: fn (array $candidate): bool => $this->historicalDrawFilter->isPastDraw($candidate)
         );
 
         $count = 0;

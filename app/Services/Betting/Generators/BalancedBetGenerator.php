@@ -4,6 +4,7 @@ namespace App\Services\Betting\Generators;
 
 use App\Models\Closing;
 use App\Services\BetScoringService;
+use App\Services\Betting\HistoricalDrawFilter;
 use App\Services\LotofacilStatisticsService;
 use InvalidArgumentException;
 use LogicException;
@@ -23,6 +24,10 @@ class BalancedBetGenerator implements BetGeneratorInterface
      * @var array<int>
      */
     protected const FIBONACCI = [1, 2, 3, 5, 8, 13, 21];
+
+    public function __construct(
+        protected HistoricalDrawFilter $historicalDrawFilter
+    ) {}
 
     /**
      * Valida os parâmetros específicos para a geração equilibrada.
@@ -259,7 +264,9 @@ class BalancedBetGenerator implements BetGeneratorInterface
 
                 if (! in_array($currentBet, $uniqueBets, true)) {
                     $failedReason = null;
-                    if ($this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures, $tolerance, $failedReason)) {
+                    if ($this->historicalDrawFilter->isPastDraw($currentBet)) {
+                        $rejectionStats['Combinação já sorteada em concurso anterior'] = ($rejectionStats['Combinação já sorteada em concurso anterior'] ?? 0) + 1;
+                    } elseif ($this->isBalanced($currentBet, $parameters, $betSize, $lastDrawnNumbers, $temperatures, $tolerance, $failedReason)) {
                         yield $currentBet;
                         $uniqueBets[] = $currentBet;
                         $generatedCount++;
@@ -293,7 +300,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
                         $currentBet = $this->generateRandomCombination($baseNumbers, $betSize, $usageCount);
                     }
                     sort($currentBet);
-                    if (! in_array($currentBet, $uniqueBets, true)) {
+                    if (! in_array($currentBet, $uniqueBets, true) && ! $this->historicalDrawFilter->isPastDraw($currentBet)) {
                         yield $currentBet;
                         $uniqueBets[] = $currentBet;
                         $generatedCount++;
