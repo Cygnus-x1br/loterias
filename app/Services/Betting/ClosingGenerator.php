@@ -243,6 +243,70 @@ class ClosingGenerator
     }
 
     /**
+     * Troca as apostas de um fechamento concluído por um novo conjunto (ex: resultado da busca local).
+     *
+     * Só vale para fechamentos ainda não apostados, e cada aposta é revalidada: 15 dezenas distintas
+     * do grupo-base, sem repetir apostas nem combinações já sorteadas.
+     *
+     * @param  array<int, array<int, int>>  $bets
+     *
+     * @throws InvalidArgumentException
+     * @throws LogicException
+     */
+    public function replaceBets(Closing $closing, array $bets): int
+    {
+        if ($closing->status !== 'completed') {
+            throw new LogicException('Só é possível trocar as apostas de um fechamento concluído e ainda não apostado.');
+        }
+
+        if ($bets === []) {
+            throw new InvalidArgumentException('Informe ao menos uma aposta.');
+        }
+
+        $baseNumbers = array_map('intval', $closing->base_numbers ?? []);
+        $filter = app(HistoricalDrawFilter::class);
+        $seen = [];
+        $normalized = [];
+
+        foreach ($bets as $bet) {
+            $bet = array_values(array_unique(array_map('intval', $bet)));
+            sort($bet);
+
+            if (count($bet) !== 15 || array_diff($bet, $baseNumbers) !== []) {
+                throw new InvalidArgumentException('Cada aposta deve ter 15 dezenas distintas do grupo-base.');
+            }
+
+            if (isset($seen[implode('-', $bet)]) || $filter->isPastDraw($bet)) {
+                throw new InvalidArgumentException('As apostas não podem repetir combinações nem usar sorteios passados.');
+            }
+
+            $seen[implode('-', $bet)] = true;
+            $normalized[] = $bet;
+        }
+
+        return DB::transaction(function () use ($closing, $normalized): int {
+            $closing->bets()->delete();
+
+            foreach ($normalized as $index => $numbers) {
+                Bet::create([
+                    'user_id' => $closing->user_id,
+                    'closing_id' => $closing->id,
+                    'name' => sprintf('%s - Aposta %d', $closing->name, $index + 1),
+                    'numbers' => $numbers,
+                    'source' => 'closing',
+                    'method' => $closing->method,
+                    'status' => 'active',
+                    'contest_number' => $closing->contest_number,
+                    'draw_date' => $closing->draw_date,
+                    'notes' => null,
+                ]);
+            }
+
+            return count($normalized);
+        });
+    }
+
+    /**
      * Reseta as apostas do fechamento e o retorna para o estado de rascunho (draft).
      */
     public function resetToDraft(Closing $closing): void

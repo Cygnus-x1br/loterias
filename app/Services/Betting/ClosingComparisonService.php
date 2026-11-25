@@ -36,6 +36,7 @@ class ClosingComparisonService
         'random' => ['label' => 'Aleatório', 'generator' => RandomBetGenerator::class, 'generation' => 'random'],
         'balanced' => ['label' => 'Equilibrado (filtros)', 'generator' => BalancedBetGenerator::class, 'generation' => 'balanced'],
         'balanced_spread' => ['label' => 'Equilibrado + distribuir apostas', 'generator' => BalancedBetGenerator::class, 'generation' => 'balanced'],
+        'balanced_local' => ['label' => 'Equilibrado + busca local', 'generator' => BalancedBetGenerator::class, 'generation' => 'balanced'],
         'reduced' => ['label' => 'Reduzido (guloso)', 'generator' => ReducedBetGenerator::class, 'generation' => 'reduced'],
     ];
 
@@ -51,6 +52,7 @@ class ClosingComparisonService
         private LotofacilSettingService $settings,
         private CoverageAuditorService $auditor,
         private ClosingTransparencyReportService $report,
+        private LocalSearchService $localSearch,
     ) {}
 
     /**
@@ -168,6 +170,15 @@ class ClosingComparisonService
                 }
             }
 
+            if ($method === 'balanced_local') {
+                $bets = $this->localSearch->improve($baseNumbers, $bets, [
+                    'seed' => $seed,
+                    'max_iterations' => 800,
+                    'max_stale' => 300,
+                    'time_limit' => 5,
+                ])['bets'];
+            }
+
             $elapsedMs = (hrtime(true) - $startedAt) / 1e6;
             $memoryBytes = max(0, memory_get_peak_usage() - $memoryBefore);
         } catch (Throwable $exception) {
@@ -193,7 +204,7 @@ class ClosingComparisonService
     {
         return match ($method) {
             'balanced' => ['even_odd_balance' => [6, 9]],
-            'balanced_spread' => ['even_odd_balance' => [6, 9], 'spread_bets' => true],
+            'balanced_spread', 'balanced_local' => ['even_odd_balance' => [6, 9], 'spread_bets' => true],
             'reduced' => ['reduced_parameters' => ['guarantee_hits' => min(15, count($baseNumbers)), 'guarantee_points' => 14]],
             default => null,
         };

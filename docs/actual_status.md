@@ -9,7 +9,7 @@ Este documento compara o que está implementado no código com a especificação
 ## 1. Visão geral
 
 - **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local sem Docker; MariaDB no Docker e em produção.
-- **Testes:** 237 testes PHPUnit, todos passando.
+- **Testes:** 249 testes PHPUnit, todos passando.
 - **Histórico de desenvolvimento:** 49 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
 
 ### 1.1 Modelo de dados
@@ -81,7 +81,7 @@ Legenda: ✅ implementado · 🟡 parcial · ❌ não implementado
 | 9 | Set covering (mínimo e por orçamento) | 🟡 | Apenas heurística gulosa com `budget`; sem solução exata |
 | 10 | Programação inteira | ❌ | — |
 | 11 | Heurística gulosa | ✅ | `SetCoveringService` |
-| 12 | Busca local | ❌ | — |
+| 12 | Busca local | ✅ | `LocalSearchService`: subida de encosta sobre um conjunto de apostas existente, com os seis movimentos da especificação (trocar dezena, substituir por aposta que cubra cenários mal cobertos, trocar dezenas entre apostas, remover redundante, inserir, substituir a de menor ganho marginal). Avalia F = Σ w·C_k − λ·|B| − μ·R sobre os cenários (sorteios de 15 dezenas dentro do grupo-base, até 21 dezenas), nunca gera combinação já sorteada e é reproduzível por semente. Para por iterações, falta de melhoria, cobertura desejada ou tempo. Por padrão mantém o número de apostas (orçamento fixo). Disponível na tela do fechamento ("Melhorar com busca local", com prévia e confirmação antes de aplicar) e como método "Equilibrado + busca local" na comparação. Resultado heurístico |
 | 13 | Simulated annealing | ❌ | — |
 | 14 | Algoritmo genético | ❌ | — |
 | 15 | Programação por restrições | 🟡 | `OptimizerService` aplica filtros rígidos e limite de interseção entre apostas, mas sem solver |
@@ -96,7 +96,7 @@ Legenda: ✅ implementado · 🟡 parcial · ❌ não implementado
 | 24 | Comparação de algoritmos | ✅ | Tela "Comparar métodos" (`/fechamentos/comparar`) e `ClosingComparisonService`: gera, sem salvar, apostas dos métodos aleatório, equilibrado, equilibrado + distribuir e reduzido com o mesmo grupo-base, orçamento (2 a 30 apostas) e semente (`mt_srand`), avaliados sobre os 3.268.760 sorteios. Mostra quantidade, custo, chance exata de ≥ 11 a 15 pontos, score (menor, média e maior), redundância, distribuição das dezenas, garantia de 14 pontos (exata, até 20 dezenas), tempo e memória, com selo de classificação. Não compara integral nem roda (dependem de parâmetros próprios) |
 | 25 | Custo e orçamento | ✅ | Configuração por usuário, custo do fechamento, `/financeiro` (ROI por concurso, fechamento e aposta) |
 | 26 | Relatórios e transparência | ✅ | `ClosingTransparencyReportService` e seção "Relatório de transparência" na tela do fechamento: método, grupo-base, apostas, custo, parâmetros, faixa de score, garantia e condições, cenários avaliados, método de validação, limitações, aleatoriedade e aviso de não-previsão. A semente aparece como "não registrada" até a implementação do requisito 3.11 |
-| 27 | Testes | ✅ | 237 testes (Feature e Unit) |
+| 27 | Testes | ✅ | 249 testes (Feature e Unit) |
 | 28 | Desempenho | 🟡 | Geração sob demanda, bitmasks e enumeração exata (≈ 0,1 s por aposta). Fechamentos com 1.000 apostas ou mais (inclui o integral com 20 dezenas ou mais) rodam em segundo plano (`GenerateClosingBetsJob`) com barra de progresso, cancelamento sem deixar apostas parciais e mensagem de erro; exigem o worker da fila ativo. Faltam: informar o tempo e os cenários do modo exato, paralelização e progresso nas auditorias e no otimizador |
 | 29 | Classificação Exato / Heurístico / Simulado | ✅ | Enum `ResultClassification` (Exato, Ótimo comprovado, Viável, Heurístico, Simulado) e selo `<x-result-badge>` no relatório, na chance real de premiação (exato), na auditoria combinatória (exata ou simulada), na auditoria consolidada, no otimizador (heurístico) e no Monte Carlo (simulado); o backtesting é rotulado como resultado histórico. Ciclo, atraso e temperatura seguem rotulados como descritivos |
 | 30 | Regras de comunicação | ✅ | Textos revisados: o otimizador não fala mais em "jogos mais fortes"; a verificação por Monte Carlo deixou de dizer "Garante" e mostra "Sem falhas na amostra"; o Monte Carlo "estima" em vez de "prever"; os textos educativos descrevem a garantia como condicional. Score e temperatura continuam com aviso de que não alteram a probabilidade |
@@ -203,7 +203,7 @@ Em ordem de prioridade:
 5. **Critério das dezenas menos indicadas**
    - [ ] Reavaliar o acompanhamento após 100 concursos conferidos e decidir se a dupla avaliação continua na sugestão.
 6. **Otimização avançada** (Itens 12 a 14 e 24)
-   - [ ] Busca local sobre a solução gulosa e sobre a distribuição das apostas (maximizar a chance de pelo menos um prêmio).
+   - [x] Busca local sobre a solução gulosa e sobre a distribuição das apostas (maximizar a chance de pelo menos um prêmio). Feita sobre qualquer conjunto de apostas; falta ligar ao reduzido guloso na geração.
    - [ ] Simulated annealing.
    - [ ] Algoritmo genético.
    - [x] Módulo de comparação entre métodos (mesmo grupo-base, orçamento e semente), usando `ClosingProbabilityService`. Inclua os métodos de otimização avançada nele quando existirem.

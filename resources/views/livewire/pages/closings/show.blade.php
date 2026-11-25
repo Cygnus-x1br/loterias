@@ -8,6 +8,7 @@ use App\Services\Betting\ClosingProbabilityService;
 use App\Services\LotofacilStatisticsService;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extends Component
@@ -25,6 +26,12 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     public bool $compareLastResult = true;
 
     public bool $showTransparencyReport = false;
+
+    /** @var array<string, mixed>|null Resultado da busca local ainda não aplicado (protegido contra edição pelo navegador) */
+    #[Locked]
+    public ?array $localSearchPreview = null;
+
+    public ?string $localSearchError = null;
 
     // Modal e dados de "Marcar como Apostado"
     public bool $showMarkAsPlacedModal = false;
@@ -678,6 +685,66 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     /**
      * Calcula a probabilidade exata do fechamento premiar no próximo sorteio.
      */
+    /**
+     * Roda a busca local sobre as apostas atuais e guarda o resultado para conferência (nada é gravado).
+     */
+    public function runLocalSearch(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode melhorar as apostas.');
+        }
+
+        $this->localSearchError = null;
+        $this->localSearchPreview = null;
+
+        if ($this->closing->status !== 'completed') {
+            $this->localSearchError = 'A busca local só vale para fechamentos concluídos e ainda não apostados.';
+
+            return;
+        }
+
+        try {
+            $bets = $this->allBetNumbers();
+            $result = app(\App\Services\Betting\LocalSearchService::class)->improve(
+                $this->closing->base_numbers ?? [],
+                $bets,
+                ['seed' => random_int(1, 999999), 'time_limit' => 8, 'max_iterations' => 1500, 'max_stale' => 400]
+            );
+
+            $this->localSearchPreview = json_decode(json_encode($result), true);
+        } catch (\InvalidArgumentException $exception) {
+            $this->localSearchError = $exception->getMessage();
+        }
+    }
+
+    public function applyLocalSearch(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode melhorar as apostas.');
+        }
+
+        if (! $this->localSearchPreview) {
+            return;
+        }
+
+        try {
+            $count = app(ClosingGenerator::class)->replaceBets($this->closing, $this->localSearchPreview['bets']);
+            $this->generationSuccess = "{$count} aposta(s) atualizada(s) pela busca local.";
+            $this->localSearchPreview = null;
+            $this->combinatorialCoverage = null;
+        } catch (\InvalidArgumentException|\LogicException $exception) {
+            $this->localSearchError = $exception->getMessage();
+        }
+
+        $this->closing->refresh();
+    }
+
+    public function discardLocalSearch(): void
+    {
+        $this->localSearchPreview = null;
+        $this->localSearchError = null;
+    }
+
     public function toggleTransparencyReport(): void
     {
         $this->showTransparencyReport = ! $this->showTransparencyReport;
@@ -1349,6 +1416,76 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                 *Referência: a mesma quantidade de apostas simples, como se não tivessem dezenas em comum.
                             @endif
                         </p>
+                    @endif
+                </section>
+            @endif
+
+            {{-- Busca local --}}
+            @if ($closing->status === 'completed' && $closing->user_id === Auth::id() && $closing->bets()->exists())
+                <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" data-local-search>
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <h2 class="flex items-center gap-2 text-lg font-bold text-slate-900">
+                                Melhorar com busca local
+                                <x-result-badge :classification="\App\Services\Betting\ResultClassification::Heuristic" />
+                            </h2>
+                            <p class="mt-1 text-sm text-slate-500">
+                                Parte das apostas atuais e testa trocas (de dezena, de aposta, entre apostas) que aumentem a cobertura dos cenários do grupo-base e reduzam a redundância, mantendo a quantidade de apostas.
+                                O resultado só é salvo se você aplicar. Grupo-base de até {{ \App\Services\Betting\LocalSearchService::MAX_BASE }} dezenas.
+                            </p>
+                        </div>
+                        @if (! $localSearchPreview)
+                            <button type="button" wire:click="runLocalSearch" wire:loading.attr="disabled" wire:target="runLocalSearch" class="inline-flex shrink-0 items-center justify-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60">
+                                <span wire:loading.remove wire:target="runLocalSearch">Rodar busca local</span>
+                                <span wire:loading wire:target="runLocalSearch">Buscando (até 8 s)…</span>
+                            </button>
+                        @endif
+                    </div>
+
+                    @if ($localSearchError)
+                        <p class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ $localSearchError }}</p>
+                    @endif
+
+                    @if ($localSearchPreview)
+                        @php $search = $localSearchPreview; @endphp
+                        <div class="mt-4 overflow-x-auto">
+                            <table class="min-w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                        <th class="py-2 pr-4">Cenários do grupo-base</th>
+                                        <th class="py-2 pr-4 text-right">Antes</th>
+                                        <th class="py-2 text-right">Depois</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100 text-slate-700">
+                                    @foreach ([11, 12, 13, 14, 15] as $hits)
+                                        <tr>
+                                            <td class="py-2 pr-4">Pelo menos {{ $hits }} pontos</td>
+                                            <td class="py-2 pr-4 text-right">{{ number_format($search['before']['coverage'][$hits] * 100, 2, ',', '.') }}%</td>
+                                            <td class="py-2 text-right font-semibold">{{ number_format($search['after']['coverage'][$hits] * 100, 2, ',', '.') }}%</td>
+                                        </tr>
+                                    @endforeach
+                                    <tr>
+                                        <td class="py-2 pr-4">Redundância (dezenas em comum / 15)</td>
+                                        <td class="py-2 pr-4 text-right">{{ number_format($search['before']['redundancy'], 3, ',', '.') }}</td>
+                                        <td class="py-2 text-right font-semibold">{{ number_format($search['after']['redundancy'], 3, ',', '.') }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="mt-3 text-xs leading-5 text-slate-500">
+                            {{ number_format($search['scenarios'], 0, ',', '.') }} cenários · {{ $search['iterations'] }} movimentos testados em {{ number_format($search['elapsed_ms'] / 1000, 1, ',', '.') }} s · {{ $search['stop_reason_label'] }} · semente {{ $search['seed'] }}.
+                            @if (! $search['improved'])
+                                Nenhuma melhoria foi encontrada: as apostas atuais já estão num ótimo local para estes critérios.
+                            @endif
+                            Resultado heurístico: não prova que o conjunto seja o melhor possível, e a cobertura dos cenários não altera a chance de cada aposta ser sorteada.
+                        </p>
+                        <div class="mt-4 flex flex-wrap gap-2">
+                            @if ($search['improved'])
+                                <button type="button" wire:click="applyLocalSearch" wire:confirm="Substituir as apostas atuais pelas apostas melhoradas?" class="inline-flex items-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700">Aplicar melhoria</button>
+                            @endif
+                            <button type="button" wire:click="discardLocalSearch" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Descartar</button>
+                        </div>
                     @endif
                 </section>
             @endif
