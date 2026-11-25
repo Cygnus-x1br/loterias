@@ -38,6 +38,18 @@ new #[Layout('layouts.app', ['title' => 'Comparar métodos'])] class extends Com
             : [...$this->baseNumbers, $number];
 
         sort($this->baseNumbers);
+
+        $this->syncReducedMethod();
+    }
+
+    /**
+     * O reduzido (guloso) não roda com grupo-base grande: é desmarcado e bloqueado automaticamente.
+     */
+    private function syncReducedMethod(): void
+    {
+        if (count($this->baseNumbers) > ClosingComparisonService::MAX_BASE_FOR_REDUCED) {
+            $this->methods = array_values(array_diff($this->methods, ['reduced']));
+        }
     }
 
     public function newSeed(): void
@@ -49,6 +61,7 @@ new #[Layout('layouts.app', ['title' => 'Comparar métodos'])] class extends Com
     {
         $this->error = null;
         $this->comparison = null;
+        $this->syncReducedMethod();
 
         $this->validate([
             'seed' => ['required', 'integer', 'min:0', 'max:4294967295'],
@@ -122,12 +135,19 @@ new #[Layout('layouts.app', ['title' => 'Comparar métodos'])] class extends Com
             <h2 class="text-sm font-bold text-slate-700">Métodos</h2>
             <div class="mt-2 flex flex-wrap gap-4">
                 @foreach ($availableMethods as $key => $definition)
-                    <label class="flex items-center gap-2 text-sm text-slate-700">
-                        <input type="checkbox" wire:model="methods" value="{{ $key }}" class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                    @php $locked = $key === 'reduced' && count($baseNumbers) > ClosingComparisonService::MAX_BASE_FOR_REDUCED; @endphp
+                    <label
+                        @class(['flex items-center gap-2 text-sm', 'text-slate-700' => ! $locked, 'text-slate-400' => $locked])
+                        title="{{ $locked ? 'Disponível só com grupo-base de até '.ClosingComparisonService::MAX_BASE_FOR_REDUCED.' dezenas' : '' }}"
+                    >
+                        <input type="checkbox" wire:model="methods" value="{{ $key }}" data-method="{{ $key }}" @disabled($locked) class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">
                         {{ $definition['label'] }}
                     </label>
                 @endforeach
             </div>
+            <p class="mt-2 text-xs text-slate-500">
+                O reduzido (guloso) só é comparado com grupo-base de até {{ ClosingComparisonService::MAX_BASE_FOR_REDUCED }} dezenas; a busca local, de até {{ \App\Services\Betting\LocalSearchService::MAX_BASE }}.
+            </p>
         </div>
 
         @if ($error)

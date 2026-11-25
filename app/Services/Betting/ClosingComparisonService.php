@@ -45,6 +45,12 @@ class ClosingComparisonService
      */
     public const MAX_BASE_FOR_GUARANTEE = 20;
 
+    /**
+     * O reduzido guloso testa cada aposta candidata contra cada cenário a cada passo:
+     * com 19 dezenas já são 15 milhões de testes por aposta escolhida, e com 21 passam de 2 bilhões.
+     */
+    public const MAX_BASE_FOR_REDUCED = 18;
+
     public function __construct(
         private ClosingProbabilityService $probability,
         private BetScoringService $scoring,
@@ -74,6 +80,11 @@ class ClosingComparisonService
         sort($baseNumbers);
 
         $this->validate($baseNumbers, $betsBudget, $methods);
+
+        // A chance exata percorre 3,2 milhões de sorteios por aposta: a comparação pode passar do limite padrão de 30 s
+        if (function_exists('set_time_limit')) {
+            set_time_limit(180);
+        }
 
         $patterns = $this->statistics->getScoringPatterns();
         $results = [];
@@ -148,6 +159,13 @@ class ClosingComparisonService
             'planned_bets' => $betsBudget,
             'parameters' => $this->parametersFor($method, $baseNumbers),
         ]);
+
+        if ($method === 'reduced' && count($baseNumbers) > self::MAX_BASE_FOR_REDUCED) {
+            return array_merge($base, ['error' => sprintf(
+                'O reduzido (guloso) só é comparado com grupo-base de até %d dezenas: acima disso o cálculo leva muitos minutos.',
+                self::MAX_BASE_FOR_REDUCED
+            )]);
+        }
 
         try {
             $generator = app($definition['generator']);

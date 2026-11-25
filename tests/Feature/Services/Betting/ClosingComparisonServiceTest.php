@@ -96,6 +96,18 @@ class ClosingComparisonServiceTest extends TestCase
         $this->assertNull($result['results']['random']['error']);
     }
 
+    public function test_reduced_is_skipped_quickly_for_bases_too_large_for_the_greedy_method(): void
+    {
+        $startedAt = microtime(true);
+
+        $result = app(ClosingComparisonService::class)->compare(range(1, 21), 4, ['random', 'reduced'], 3);
+
+        $this->assertLessThan(30, microtime(true) - $startedAt);
+        $this->assertStringContainsString('até 18 dezenas', $result['results']['reduced']['error']);
+        $this->assertNull($result['results']['random']['error']);
+        $this->assertSame(4, $result['results']['random']['bets_count']);
+    }
+
     public function test_rejects_invalid_requests(): void
     {
         $service = app(ClosingComparisonService::class);
@@ -160,5 +172,37 @@ class ClosingComparisonServiceTest extends TestCase
             ->assertSet('baseNumbers', [3, 9])
             ->call('toggleNumber', 9)
             ->assertSet('baseNumbers', [3]);
+    }
+
+    public function test_compare_page_unchecks_and_locks_reduced_above_18_numbers(): void
+    {
+        $component = Volt::actingAs(User::factory()->create())
+            ->test('pages.closings.compare')
+            ->set('baseNumbers', range(1, 17))
+            ->assertSet('methods', ['random', 'balanced', 'balanced_spread', 'reduced'])
+            ->assertDontSeeHtml('data-method="reduced" disabled');
+
+        // 19ª dezena: o reduzido sai da seleção e o campo é bloqueado
+        $component->set('baseNumbers', range(1, 18))
+            ->call('toggleNumber', 19)
+            ->assertSet('methods', ['random', 'balanced', 'balanced_spread'])
+            ->assertSeeHtml('data-method="reduced" disabled');
+
+        // Voltando a 18 dezenas, o campo é liberado (sem remarcar sozinho)
+        $component->call('toggleNumber', 19)
+            ->assertSet('methods', ['random', 'balanced', 'balanced_spread'])
+            ->assertDontSeeHtml('data-method="reduced" disabled');
+    }
+
+    public function test_compare_page_ignores_a_reduced_selection_forced_with_a_large_base(): void
+    {
+        Volt::actingAs(User::factory()->create())
+            ->test('pages.closings.compare')
+            ->set('baseNumbers', range(1, 20))
+            ->set('methods', ['random', 'reduced'])
+            ->set('betsBudget', 3)
+            ->call('compare')
+            ->assertSet('methods', ['random'])
+            ->assertSee('Escolha pelo menos dois métodos');
     }
 }
