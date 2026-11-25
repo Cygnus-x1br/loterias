@@ -196,6 +196,75 @@ class ClosingGenerator
     }
 
     /**
+     * Repete um fechamento gravado para outro concurso.
+     *
+     * Cria um novo fechamento com a mesma configuração (método, grupo-base, parâmetros, orçamento
+     * e observações) para o concurso informado, sempre em nome do dono do original e sem
+     * compartilhamento. Com $copyBets, as apostas são copiadas com as mesmas dezenas e o novo
+     * fechamento nasce concluído; sem ele, nasce como rascunho para gerar novas apostas.
+     * O novo fechamento nunca herda concurso apostado, data do sorteio nem conferência.
+     *
+     * @throws InvalidArgumentException
+     */
+    public function repeatForContest(Closing $closing, int $targetContest, bool $copyBets = true): Closing
+    {
+        if ($targetContest < 1) {
+            throw new InvalidArgumentException('Informe um número de concurso válido.');
+        }
+
+        $sourceContest = $closing->contest_number ?? $closing->target_contest_number;
+        if ($sourceContest !== null && $targetContest === (int) $sourceContest) {
+            throw new InvalidArgumentException('Informe um concurso diferente do fechamento original.');
+        }
+
+        return DB::transaction(function () use ($closing, $targetContest, $copyBets): Closing {
+            $bets = $copyBets ? $closing->bets()->orderBy('id')->get() : collect();
+            $name = $this->nameForContest($closing->name, $targetContest);
+
+            $repeated = Closing::create([
+                'user_id' => $closing->user_id,
+                'name' => $name,
+                'method' => $closing->method,
+                'base_numbers' => $closing->base_numbers,
+                'bet_size' => $closing->bet_size,
+                'planned_bets' => $closing->planned_bets,
+                'guarantee' => $closing->guarantee,
+                'budget' => $closing->budget,
+                'parameters' => $closing->parameters,
+                'generation_warnings' => $bets->isNotEmpty() ? $closing->generation_warnings : null,
+                'status' => $bets->isNotEmpty() ? 'completed' : 'draft',
+                'target_contest_number' => $targetContest,
+                'notes' => $closing->notes,
+            ]);
+
+            foreach ($bets as $index => $bet) {
+                Bet::create([
+                    'user_id' => $closing->user_id,
+                    'closing_id' => $repeated->id,
+                    'name' => sprintf('%s - Aposta %d', $name, $index + 1),
+                    'numbers' => $bet->numbers,
+                    'source' => $bet->source,
+                    'method' => $bet->method,
+                    'status' => 'active',
+                    'notes' => $bet->notes,
+                ]);
+            }
+
+            return $repeated;
+        });
+    }
+
+    /**
+     * Nome do fechamento repetido: troca o sufixo " - Concurso N" em vez de acumulá-lo.
+     */
+    protected function nameForContest(string $name, int $contest): string
+    {
+        $base = preg_replace('/\s+-\s+Concurso\s+\d+$/u', '', $name) ?? $name;
+
+        return mb_substr($base, 0, 255 - mb_strlen(" - Concurso {$contest}")).' - Concurso '.$contest;
+    }
+
+    /**
      * Completa as apostas faltantes até atingir a quantidade planejada ($closing->planned_bets).
      *
      * Prioriza dezenas do grupo-base que ainda não estejam presentes em nenhuma aposta.

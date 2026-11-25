@@ -28,6 +28,11 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     public ?int $placedContestNumber = null;
     public ?string $placedDrawDate = null;
 
+    // Modal e dados de "Repetir para outro concurso"
+    public bool $showRepeatModal = false;
+    public ?int $repeatContestNumber = null;
+    public bool $repeatCopyBets = true;
+
     // Conferência e Relatório
     public ?array $checkSummary = null;
     public ?string $checkError = null;
@@ -124,6 +129,61 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     public function closeMarkAsPlacedModal(): void
     {
         $this->showMarkAsPlacedModal = false;
+    }
+
+    public function openRepeatModal(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode repeti-lo para outro concurso.');
+        }
+
+        // Sugere o primeiro concurso ainda não sorteado e diferente do fechamento original
+        $sourceContest = $this->closing->contest_number ?? $this->closing->target_contest_number ?? 0;
+        $this->repeatContestNumber = max(($this->lastContestNumber ?? 0) + 1, $sourceContest + 1);
+        $this->repeatCopyBets = $this->closing->bets()->exists();
+        $this->resetErrorBag();
+        $this->showRepeatModal = true;
+    }
+
+    public function closeRepeatModal(): void
+    {
+        $this->showRepeatModal = false;
+    }
+
+    /**
+     * Cria uma cópia deste fechamento para outro concurso e abre a cópia.
+     */
+    public function repeatForContest(): void
+    {
+        if ($this->closing->user_id !== Auth::id()) {
+            abort(403, 'Apenas o criador do fechamento pode repeti-lo para outro concurso.');
+        }
+
+        $this->validate([
+            'repeatContestNumber' => ['required', 'integer', 'min:1'],
+            'repeatCopyBets' => ['boolean'],
+        ], [
+            'repeatContestNumber.required' => 'Informe o número do concurso.',
+            'repeatContestNumber.integer' => 'O número do concurso deve ser um número inteiro.',
+            'repeatContestNumber.min' => 'O número do concurso deve ser maior que zero.',
+        ]);
+
+        try {
+            $repeated = app(ClosingGenerator::class)->repeatForContest(
+                $this->closing,
+                (int) $this->repeatContestNumber,
+                $this->repeatCopyBets
+            );
+        } catch (\InvalidArgumentException $exception) {
+            $this->addError('repeatContestNumber', $exception->getMessage());
+
+            return;
+        }
+
+        $this->showRepeatModal = false;
+        session()->flash('success', 'Fechamento repetido para o concurso #'.$repeated->target_contest_number.'.');
+
+        $this->redirectRoute('closings.show', $repeated, navigate: true);
     }
 
     public function markAsPlaced(): void
@@ -828,6 +888,19 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                                 </svg>
                                 {{ $closing->status === 'placed' || $closing->status === 'checked' ? 'Editar Concurso Apostado' : 'Marcar como Apostado' }}
+                            </button>
+
+                            {{-- Botão Repetir para outro concurso --}}
+                            <button
+                                type="button"
+                                wire:click="openRepeatModal"
+                                class="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+                                title="Criar uma cópia deste fechamento para outro concurso"
+                            >
+                                <svg class="h-4 w-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                                </svg>
+                                Repetir para outro concurso
                             </button>
 
                             {{-- Botão Refazer Apostas (apenas se ainda não apostado nem conferido) --}}
@@ -1704,6 +1777,69 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                         class="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-sm"
                     >
                         Confirmar Apostado
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Modal Repetir para outro concurso --}}
+    @if ($showRepeatModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div class="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-5">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">Repetir para outro concurso</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">
+                            Cria uma cópia de "{{ $closing->name }}" para o concurso informado. O original não é alterado.
+                        </p>
+                    </div>
+                    <button type="button" wire:click="closeRepeatModal" class="text-slate-400 hover:text-slate-600 rounded-lg p-1">✕</button>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label for="repeatContestNumber" class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Concurso <span class="text-rose-500">*</span>
+                        </label>
+                        <input
+                            type="number"
+                            id="repeatContestNumber"
+                            wire:model="repeatContestNumber"
+                            min="1"
+                            class="w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        >
+                        @error('repeatContestNumber')
+                            <p class="mt-1 text-xs text-rose-600 font-medium">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <label for="repeatCopyBets" class="flex items-start gap-3 rounded-xl border border-slate-200 p-3">
+                        <input
+                            id="repeatCopyBets"
+                            type="checkbox"
+                            wire:model="repeatCopyBets"
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        >
+                        <span>
+                            <span class="block text-sm font-semibold text-slate-700">Manter as mesmas apostas</span>
+                            <span class="mt-0.5 block text-xs text-slate-500">
+                                Copia as dezenas de cada aposta. Desmarcado, o novo fechamento fica como rascunho com a mesma configuração, para gerar apostas novas.
+                            </span>
+                        </span>
+                    </label>
+
+                    <p class="text-xs text-slate-500">
+                        O novo fechamento não herda o concurso apostado, a conferência nem o compartilhamento (bolão).
+                    </p>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button type="button" wire:click="closeRepeatModal" class="px-4 py-2 text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-100">
+                        Cancelar
+                    </button>
+                    <button type="button" wire:click="repeatForContest" class="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm">
+                        Repetir fechamento
                     </button>
                 </div>
             </div>

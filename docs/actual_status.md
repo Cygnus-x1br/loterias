@@ -9,8 +9,8 @@ Este documento compara o que está implementado no código com a especificação
 ## 1. Visão geral
 
 - **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local sem Docker; MariaDB no Docker e em produção.
-- **Testes:** 185 testes PHPUnit, todos passando.
-- **Histórico de desenvolvimento:** 48 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
+- **Testes:** 198 testes PHPUnit, todos passando.
+- **Histórico de desenvolvimento:** 49 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
 
 ### 1.1 Modelo de dados
 
@@ -34,6 +34,7 @@ Este documento compara o que está implementado no código com a especificação
 
 - Todo fechamento tem um **concurso alvo**, preenchido por padrão com o próximo concurso. Ele é diferente do concurso apostado (`contest_number`), que só é gravado ao marcar "Apostado" e é o que o financeiro considera.
 - Fechamentos `completed` podem ser editados. Salvar apaga as apostas, limpa os avisos e volta o fechamento para `draft`.
+- **Repetir para outro concurso:** cria uma cópia do fechamento (configuração e, opcionalmente, as mesmas apostas) para outro concurso, sem herdar concurso apostado, conferência nem compartilhamento. Disponível ao dono em fechamentos concluídos, apostados e conferidos (`ClosingGenerator::repeatForContest`).
 - Ações disponíveis: refazer apostas, excluir apostas individualmente ou em lote (com renumeração), completar apostas faltantes até `planned_bets` e alertar dezenas do grupo-base sem cobertura.
 - Apostas e fechamentos `placed`/`checked` ficam bloqueados para edição e exclusão.
 - A página do fechamento mostra os avisos da geração (apostas aceitas fora dos filtros) e a **chance real de premiação** (ver 2.2).
@@ -53,6 +54,12 @@ Este documento compara o que está implementado no código com a especificação
 | `BetScoringService` | Score de aderência a padrões históricos (0–1000) |
 | `LotteryPrizeCalculatorService` | Custo e prêmios de apostas de 15 a 20 dezenas (cálculo combinatório) |
 | `StatisticsCache` | Cache versionado das estatísticas: qualquer mudança na série histórica invalida tudo |
+
+### 1.4 Tela de novo fechamento
+
+- Os quadros das dezenas mostram uma barra verde na parte inferior nas dezenas sorteadas no último concurso, além do indicador de temperatura.
+- O painel "Referência para planejamento" traz as estatísticas do último concurso e as dezenas com atraso (concursos sem sair, do maior para o menor), sinalizadas como referência descritiva.
+- O concurso alvo vem preenchido com o próximo concurso e alimenta a comparação de grupos da sugestão estatística.
 
 ---
 

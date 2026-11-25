@@ -746,9 +746,17 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         $temperatures = $service->getNumberTemperatureClassification(20);
         $lastContestStats = $service->getLastContestFullStatistics();
 
+        // Dezenas que não saíram no último concurso, da mais atrasada para a menos atrasada
+        $delayedNumbers = array_values(array_filter(
+            $service->getCurrentDelayAnalysis(),
+            fn (array $item): bool => $item['delay'] > 0
+        ));
+
         return [
             'numberTemperatures' => $temperatures,
             'lastContestStats' => $lastContestStats,
+            'lastDrawnNumbers' => $lastContestStats['drawn_numbers'] ?? [],
+            'delayedNumbers' => $delayedNumbers,
             'friends' => Auth::user()->friends(),
         ];
     }
@@ -887,6 +895,46 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                             <span class="text-[10px] text-slate-500 block">distribuição</span>
                         </div>
                     </div>
+
+                    {{-- Dezenas com atraso --}}
+                    @if (! empty($delayedNumbers))
+                        <div class="mt-3 border-t border-indigo-100/70 pt-2.5">
+                            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span class="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Dezenas com atraso</span>
+                                <span class="text-[10px] text-slate-400">(concursos sem sair, do maior para o menor)</span>
+                            </div>
+                            <div class="mt-1.5 flex flex-wrap gap-1.5">
+                                @foreach ($delayedNumbers as $item)
+                                    @php
+                                        $delayColor = match (true) {
+                                            $item['delay'] >= 3 => 'bg-rose-100 text-rose-700 border-rose-200',
+                                            $item['delay'] === 2 => 'bg-amber-100 text-amber-700 border-amber-200',
+                                            default => 'bg-slate-100 text-slate-600 border-slate-200',
+                                        };
+                                    @endphp
+                                    <span
+                                        data-delayed-number="{{ $item['number'] }}"
+                                        class="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-bold {{ $delayColor }}"
+                                        title="Dezena {{ sprintf('%02d', $item['number']) }}: {{ $item['delay'] }} {{ $item['delay'] === 1 ? 'concurso' : 'concursos' }} sem sair"
+                                    >
+                                        {{ str_pad($item['number'], 2, '0', STR_PAD_LEFT) }}
+                                        <span class="font-medium opacity-70">{{ $item['delay'] }}</span>
+                                    </span>
+                                @endforeach
+                            </div>
+                            <p class="mt-1.5 text-[10px] leading-4 text-slate-400">
+                                Referência descritiva: o sorteio não tem memória e uma dezena atrasada não tem mais chance de sair.
+                            </p>
+                        </div>
+                    @endif
+                </div>
+            @endif
+
+            {{-- Legenda da marca de dezenas do último concurso --}}
+            @if (! empty($lastDrawnNumbers))
+                <div class="mt-4 flex items-center gap-2 text-[11px] text-slate-500">
+                    <span class="inline-block h-1 w-4 rounded-full bg-emerald-500"></span>
+                    Sorteada no último concurso ({{ $lastContestStats['contest_number'] }})
                 </div>
             @endif
 
@@ -896,13 +944,15 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                         $selected = in_array($number, $base_numbers, true);
                         $tempInfo = $numberTemperatures[$number] ?? ['temperature' => 'neutral', 'recent_count' => 0, 'delay' => 0];
                         $temp = $tempInfo['temperature'];
+                        $wasDrawnLast = in_array($number, $lastDrawnNumbers, true);
                     @endphp
 
                     <button
                         type="button"
                         wire:key="closing-number-{{ $number }}"
                         wire:click="toggleNumber({{ $number }})"
-                        title="Dezena {{ sprintf('%02d', $number) }} - {{ $temp === 'hot' ? 'Quente (Saiu '.$tempInfo['recent_count'].'x nos ultimos 20 concursos)' : ($temp === 'cold' ? 'Fria (Atrasada ou poucas saídas recentes)' : 'Neutra / Media') }}"
+                        @if ($wasDrawnLast) data-last-drawn="true" @endif
+                        title="Dezena {{ sprintf('%02d', $number) }}{{ $wasDrawnLast ? ' (saiu no último concurso)' : '' }} - {{ $temp === 'hot' ? 'Quente (Saiu '.$tempInfo['recent_count'].'x nos ultimos 20 concursos)' : ($temp === 'cold' ? 'Fria (Atrasada ou poucas saídas recentes)' : 'Neutra / Media') }}"
                         @class([
                             'relative flex aspect-square flex-col items-center justify-center rounded-xl border text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
                             'border-indigo-600 bg-indigo-600 text-white shadow-md shadow-indigo-600/20' => $selected,
@@ -926,6 +976,11 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                         </span>
 
                         <span>{{ str_pad($number, 2, '0', STR_PAD_LEFT) }}</span>
+
+                        {{-- Marca inferior: dezena sorteada no último concurso --}}
+                        @if ($wasDrawnLast)
+                            <span class="absolute bottom-1.5 left-1/2 h-1 w-4 -translate-x-1/2 rounded-full bg-emerald-500 ring-1 ring-white/70"></span>
+                        @endif
                     </button>
                 @endforeach
             </div>
