@@ -1042,6 +1042,44 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                             </div>
                         </div>
                     </div>
+
+                    @if (! empty($statisticalReport['least_indicated']))
+                        <div class="mt-4 rounded-xl bg-white p-4 border border-emerald-100 shadow-sm">
+                            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Dupla avaliação</h4>
+                            <p class="text-xs text-slate-500 mb-3 leading-relaxed">{{ $statisticalReport['criteria']['cross'] ?? '' }}</p>
+
+                            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <div>
+                                    <span class="text-[11px] font-semibold text-slate-500">Mais indicadas (maior pontuação)</span>
+                                    <div class="mt-1 flex flex-wrap gap-1.5">
+                                        @foreach ($statisticalReport['most_indicated'] as $num)
+                                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">{{ str_pad($num, 2, '0', STR_PAD_LEFT) }}</span>
+                                        @endforeach
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-[11px] font-semibold text-slate-500">Menos indicadas (menor pontuação)</span>
+                                    <div class="mt-1 flex flex-wrap gap-1.5">
+                                        @foreach ($statisticalReport['least_indicated'] as $num)
+                                            @php $included = in_array($num, $statisticalReport['least_included'] ?? [], true); @endphp
+                                            <span
+                                                class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold {{ $included ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300' : 'bg-slate-100 text-slate-400 line-through' }}"
+                                                title="{{ $included ? 'Precisou entrar no grupo' : 'Ficou fora do grupo' }}"
+                                            >{{ str_pad($num, 2, '0', STR_PAD_LEFT) }}</span>
+                                        @endforeach
+                                    </div>
+                                    <div class="mt-2 flex flex-wrap gap-3 text-[10px] text-slate-500 font-medium">
+                                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-slate-100 block"></span> Ficou fora</div>
+                                        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-amber-100 ring-1 ring-amber-300 block"></span> Precisou entrar</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p class="mt-3 text-[11px] leading-4 text-slate-400">
+                                Critério heurístico em acompanhamento: as indicações de cada concurso são registradas antes do sorteio e conferidas depois (ver Análises Lotofácil). Até aqui, nenhum critério alterou de forma comprovada a chance de 60% de cada dezena.
+                            </p>
+                        </div>
+                    @endif
                 </div>
             @endif
         </section>

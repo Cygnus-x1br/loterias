@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Services\BetScoringService;
 use App\Services\HistoricalResultService;
+use App\Services\NumberIndicationService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -91,6 +92,15 @@ class HistoricalResult extends Model
                 app(HistoricalResultService::class)->clearStatisticsCache();
             } catch (\Throwable) {
                 // Silencia se o serviço de cache não puder ser instanciado
+            }
+        });
+
+        // Registra/confere as dezenas mais e menos indicadas (acompanhamento do critério heurístico)
+        static::saved(function (HistoricalResult $result) {
+            try {
+                app(NumberIndicationService::class)->handleSavedResult($result);
+            } catch (\Throwable $exception) {
+                report($exception);
             }
         });
 

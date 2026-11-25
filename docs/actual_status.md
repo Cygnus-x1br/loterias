@@ -1,6 +1,6 @@
 # Status Atual do Projeto Loterias
 
-**Última atualização:** 25/11/2026 (referência: commit `6f0e00e`, de 25/11/2026)
+**Última atualização:** 25/11/2026 (referência: estado do `main` em 25/11/2026)
 
 Este documento compara o que está implementado no código com a especificação mestre ([`prompt_base.MD`](prompt_base.MD)) e lista o que ainda falta. O roteiro original em etapas ([`prompt_4_fase.md`](prompt_4_fase.md)) está superado e serve apenas como registro histórico.
 
@@ -9,8 +9,8 @@ Este documento compara o que está implementado no código com a especificação
 ## 1. Visão geral
 
 - **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local sem Docker; MariaDB no Docker e em produção.
-- **Testes:** 161 testes PHPUnit (3.488 asserções), todos passando.
-- **Histórico de desenvolvimento:** 44 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
+- **Testes:** 177 testes PHPUnit, todos passando.
+- **Histórico de desenvolvimento:** 47 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
 
 ### 1.1 Modelo de dados
 
@@ -22,6 +22,7 @@ Este documento compara o que está implementado no código com a especificação
 | `historical_results` / `HistoricalResult` | Série histórica: dezenas, hash da combinação, ganhadores e rateios, score e número do ciclo |
 | `lotofacil_settings` / `LotofacilSetting` | Preços por tamanho de aposta e prêmios fixos, por usuário |
 | `consolidated_audits` / `ConsolidatedAudit` | Resultados das auditorias de cobertura processadas em fila |
+| `number_indications` / `NumberIndication` | Dezenas mais e menos indicadas registradas antes de cada concurso e conferidas depois (acompanhamento do critério heurístico) |
 | `connections` / `Connection` | Conexões (amizade) entre usuários |
 | `closing_user`, `bet_user` | Compartilhamento de fechamentos e apostas (bolão) |
 
@@ -44,7 +45,9 @@ Este documento compara o que está implementado no código com a especificação
 | `Betting/Generators/*` | Métodos integral, reduzido, roda, aleatório e equilibrado (`BetGeneratorInterface`) |
 | `Betting/HistoricalDrawFilter` | Identifica combinações iguais a concursos passados; usado dentro dos geradores para substituí-las |
 | `Betting/ClosingProbabilityService` | Probabilidade exata de premiação de um conjunto de apostas (enumeração dos 3.268.760 sorteios) |
-| `BaseNumbersSuggestionService` | Sugestão estatística do grupo-base (repetidas do último concurso + dezenas novas) |
+| `BaseNumbersSuggestionService` | Sugestão estatística do grupo-base (repetidas do último concurso + dezenas novas), com dupla avaliação: evita as dezenas menos indicadas |
+| `NumberIndicationService` | Registra as dezenas mais e menos indicadas antes de cada concurso, confere após o sorteio e resume o acompanhamento |
+| `ScoringPatternTracker` | Contagem incremental de dezenas, pares, trios e sequências para o score sem informação de concursos futuros |
 | `LotofacilStatisticsService` | Frequências, atraso, ciclos, temperatura (regra única), cotas de repetição, sequências consecutivas |
 | `BetScoringService` | Score de aderência a padrões históricos (0–1000) |
 | `LotteryPrizeCalculatorService` | Custo e prêmios de apostas de 15 a 20 dezenas (cálculo combinatório) |
@@ -94,6 +97,7 @@ Legenda: ✅ implementado · 🟡 parcial · ❌ não implementado
 ### 2.1 Geração equilibrada (método mais usado)
 
 1. **Grupo-base (opcional):** `BaseNumbersSuggestionService` combina repetidas do último concurso com dezenas novas. O tamanho pedido é sempre respeitado: as repetições são ajustadas para a faixa possível (as novas só podem vir das 10 dezenas fora do último concurso) e o relatório informa o ajuste. Paridade e moldura são reequilibradas a cada dezena escolhida. A temperatura **não** é usada na montagem da base.
+   - **Dupla avaliação:** a mesma pontuação heurística (frequência ×0,1 + atraso ×2 + bônus do ciclo) define as 10 dezenas mais indicadas e as 5 menos indicadas. As menos indicadas ficam fora do grupo sempre que o tamanho e as repetições pedidas permitem; o relatório mostra quais ficaram fora e quais precisaram entrar.
 2. **Cotas de repetição:** distribuídas pela probabilidade hipergeométrica de cada quantidade de repetidas (ex.: 8/9/10 repetidas → 30/41/29 de 100 apostas).
 3. **Filtros:** paridade, soma, primos, Fibonacci, repetidas, score e temperatura. Quando não há combinações suficientes, a tolerância cresce até ±3 e, em último caso, a aposta é gerada sem filtros. **Toda aposta aceita fora da faixa recebe uma observação** e o fechamento mostra um resumo.
 4. **Distribuir apostas (`spread_bets`):** compara até 25 combinações válidas por aposta e escolhe a de menor sobreposição com as já geradas. Ligado por padrão em fechamentos novos.
@@ -109,6 +113,13 @@ O quadro do fechamento mostra, para cada faixa (≥11 a 15), a probabilidade de 
 
 O cálculo é exato, independe da série histórica e fica em cache por conjunto de apostas.
 
+### 2.3 Acompanhamento das dezenas mais e menos indicadas
+
+- Ao cadastrar o último resultado, o sistema registra em `number_indications`, para o próximo concurso, a pontuação das 25 dezenas, as 10 mais indicadas e as 5 menos indicadas. Quando o resultado desse concurso chega, confere quantas de cada grupo saíram. Indicações conferidas não são alteradas.
+- O painel "Acompanhamento" em Análises Lotofácil mostra as indicações do próximo concurso e a taxa de saída de cada grupo, com margem de 95%, comparada aos 60% esperados para qualquer dezena. Até 100 concursos conferidos, o resultado é tratado como amostra pequena.
+- `php artisan lotofacil:indications` confere pendências e registra o próximo concurso (necessário após importações sem eventos do model; o seeder já o executa).
+- Motivo: no teste retroativo, as 5 dezenas de menor pontuação saíram em 58,9% (±0,7) dos concursos seguintes, contra 60% esperados, com o efeito presente nas duas metades da série. Como foram feitos vários testes sobre os mesmos dados, o critério só será considerado confirmado se o efeito se mantiver nos concursos registrados daqui em diante.
+
 ---
 
 ## 3. Auditoria estatística (25/11/2026)
@@ -117,7 +128,7 @@ Verificações feitas contra a série real (3.776 concursos) e por enumeração 
 
 - **Integridade dos dados:** concursos 1 a 3776 sem lacunas, dezenas válidas, hashes conferidos, nenhum sorteio repetido. Nenhuma das 287 apostas salvas era igual a um concurso passado.
 - **Distribuições conferem com a teoria:** paridade, moldura/centro e repetidas do concurso anterior seguem a distribuição hipergeométrica; a soma tem média 195 e desvio ≈ 18; a frequência das dezenas é compatível com sorteio uniforme (χ² = 24,9 com 24 graus de liberdade).
-- **Nenhum critério tem poder preditivo comprovado.** Em teste sequencial sobre 3.726 concursos, todas as categorias saíram em ≈ 60% (o esperado para qualquer dezena): quentes, neutras e frias; repetidas e não repetidas; faltantes do ciclo; dezena excluída pela sugestão. O único desvio (atraso ≥ 3 concursos: 62%) enfraquece na segunda metade da série e, mesmo se real, vale ≈ +0,03 acerto por aposta.
+- **Nenhum critério tem poder preditivo comprovado.** Em teste sequencial sobre 3.726 concursos, todas as categorias saíram em ≈ 60% (o esperado para qualquer dezena): quentes, neutras e frias; repetidas e não repetidas; faltantes do ciclo; dezena excluída pela sugestão. Dois desvios pequenos apareceram: atraso ≥ 3 concursos (62%, enfraquece na segunda metade da série) e as 5 dezenas de menor pontuação heurística (58,9%, presente nas duas metades). O segundo está em acompanhamento fora da amostra (seção 2.3); mesmo se real, vale ≈ 1 ponto percentual.
 - **O que muda o resultado é a distribuição das apostas.** O número médio de apostas premiadas é o mesmo em qualquer configuração (≈ 1,06 a cada 10 apostas simples) e a chance de 14 e 15 pontos não muda. Já a chance de **pelo menos um** prêmio depende da sobreposição: 10 apostas em base de 21 dezenas com os filtros usuais ficam em ≈ 45–53%; espalhadas pelas 25 dezenas, ≈ 71–74%.
 
 ### 3.1 Correções aplicadas em novembro de 2026
@@ -131,6 +142,7 @@ Verificações feitas contra a série real (3.776 concursos) e por enumeração 
 | Score | Escala 0–1000 real (máximo bruto de 900 pontos), faixa da soma 175–215, sequências consecutivas sem depender de cache, ciclo e atraso rotulados como heurísticos; o score de cada concurso usa apenas concursos anteriores a ele (`ScoringPatternTracker`) |
 | Temperatura | Regra única (frequência no período, atraso só desempata) em gerador, score e comparativo |
 | Cache | `StatisticsCache` versionado; seeder invalida o cache |
+| Grupo-base | Dupla avaliação (mais × menos indicadas) e registro das indicações para acompanhamento |
 
 ---
 
@@ -154,7 +166,7 @@ Verificações feitas contra a série real (3.776 concursos) e por enumeração 
 3. **Geração síncrona:** fechamentos grandes (integral com 20 ou mais dezenas = 15.504 ou mais apostas) rodam na requisição web e podem estourar o timeout. Só a auditoria consolidada usa fila.
 4. **Faixas de score salvas:** fechamentos criados antes da nova escala (0–1000 real) podem ter `score_range` calibrado na escala antiga; o total agora sai cerca de 11% maior para os mesmos critérios.
 5. **Monte Carlo:** a auditoria por amostragem marca "garantia confirmada" com base em amostra, e a simulação financeira usa prêmios fixos estimados para 14 e 15 pontos.
-6. **Após importar a série histórica:** rodar `php artisan lotofacil:calculate-scores` (o seeder grava sem calcular score e ciclo). O `DatabaseSeeder` cria apenas o usuário de desenvolvimento; a série exige `php artisan db:seed --class=HistoricalResultSeeder`.
+6. **Após importar a série histórica:** rodar `php artisan lotofacil:calculate-scores` (o seeder grava sem calcular score e ciclo) e `php artisan lotofacil:indications` se a importação não passou pelo model. O `DatabaseSeeder` cria apenas o usuário de desenvolvimento; a série exige `php artisan db:seed --class=HistoricalResultSeeder`.
 7. **Arquivos soltos:** `parse_xlsx.py` na raiz parece sobra de desenvolvimento; `prompt_base.MD` termina com um resto de colagem ("Mensagem para o Agente / Adicionar / Ferramentas").
 
 ---
@@ -177,11 +189,13 @@ Em ordem de prioridade:
    - [ ] Distribuição completa da melhor pontuação e cenários de menor pontuação.
 4. **Desempenho** (Item 28)
    - [ ] Mover a geração de fechamentos grandes para jobs, com progresso e cancelamento.
-5. **Otimização avançada** (Itens 12 a 14 e 24)
+5. **Critério das dezenas menos indicadas**
+   - [ ] Reavaliar o acompanhamento após 100 concursos conferidos e decidir se a dupla avaliação continua na sugestão.
+6. **Otimização avançada** (Itens 12 a 14 e 24)
    - [ ] Busca local sobre a solução gulosa e sobre a distribuição das apostas (maximizar a chance de pelo menos um prêmio).
    - [ ] Simulated annealing.
    - [ ] Algoritmo genético.
    - [ ] Módulo de comparação entre métodos (mesmo grupo-base, orçamento e semente), usando `ClosingProbabilityService`.
-6. **Rodas e cobertura** (Itens 8 e 16)
+7. **Rodas e cobertura** (Itens 8 e 16)
    - [ ] Calcular cobertura de pares e trincas nas rodas.
    - [ ] Pesos por cenário.

@@ -340,6 +340,68 @@
             </section>
         @endif
 
+        {{-- Acompanhamento das dezenas mais e menos indicadas --}}
+        @if ($indicationSummary)
+            @php
+                $fmtRate = fn (?float $rate): string => $rate === null ? '—' : number_format($rate * 100, 1, ',', '.').'%';
+                $fmtMargin = fn (?float $margin): string => $margin === null ? '' : '±'.number_format($margin * 100, 1, ',', '.');
+            @endphp
+            <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 space-y-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900">Acompanhamento: dezenas mais e menos indicadas</h2>
+                    <p class="mt-1 text-sm text-slate-500">
+                        Antes de cada sorteio o sistema registra as {{ \App\Services\BaseNumbersSuggestionService::MOST_INDICATED }} dezenas de maior e as {{ \App\Services\BaseNumbersSuggestionService::LEAST_INDICATED }} de menor pontuação heurística (frequência, atraso e ciclo) e confere depois do resultado.
+                        Qualquer dezena sai, em média, em 60% dos concursos.
+                    </p>
+                </div>
+
+                @if ($indicationSummary['next'])
+                    <div class="flex flex-col gap-3 rounded-xl bg-slate-50 p-4 sm:flex-row sm:gap-8">
+                        <div>
+                            <span class="text-xs font-semibold text-slate-500">Mais indicadas para o concurso {{ $indicationSummary['next']['target_contest_number'] }}</span>
+                            <div class="mt-1 flex flex-wrap gap-1.5">
+                                @foreach ($indicationSummary['next']['most_indicated'] as $num)
+                                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">{{ str_pad($num, 2, '0', STR_PAD_LEFT) }}</span>
+                                @endforeach
+                            </div>
+                        </div>
+                        <div>
+                            <span class="text-xs font-semibold text-slate-500">Menos indicadas</span>
+                            <div class="mt-1 flex flex-wrap gap-1.5">
+                                @foreach ($indicationSummary['next']['least_indicated'] as $num)
+                                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">{{ str_pad($num, 2, '0', STR_PAD_LEFT) }}</span>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <div class="grid gap-3 sm:grid-cols-4">
+                    <div class="rounded-xl border border-slate-100 p-3">
+                        <span class="text-xs font-semibold text-slate-500">Concursos conferidos</span>
+                        <p class="text-lg font-bold text-slate-900">{{ $indicationSummary['evaluated_contests'] }}</p>
+                        @if ($indicationSummary['first_contest'])
+                            <span class="text-[11px] text-slate-400">{{ $indicationSummary['first_contest'] }} a {{ $indicationSummary['last_contest'] }}</span>
+                        @endif
+                    </div>
+                    <div class="rounded-xl border border-slate-100 p-3">
+                        <span class="text-xs font-semibold text-slate-500">Mais indicadas saíram</span>
+                        <p class="text-lg font-bold text-emerald-700">{{ $fmtRate($indicationSummary['most']['rate']) }} <span class="text-xs font-normal text-slate-400">{{ $fmtMargin($indicationSummary['most']['margin']) }}</span></p>
+                    </div>
+                    <div class="rounded-xl border border-slate-100 p-3">
+                        <span class="text-xs font-semibold text-slate-500">Menos indicadas saíram</span>
+                        <p class="text-lg font-bold text-slate-700">{{ $fmtRate($indicationSummary['least']['rate']) }} <span class="text-xs font-normal text-slate-400">{{ $fmtMargin($indicationSummary['least']['margin']) }}</span></p>
+                    </div>
+                    <div class="rounded-xl border border-slate-100 p-3">
+                        <span class="text-xs font-semibold text-slate-500">Demais dezenas saíram</span>
+                        <p class="text-lg font-bold text-slate-700">{{ $fmtRate($indicationSummary['others']['rate']) }} <span class="text-xs font-normal text-slate-400">{{ $fmtMargin($indicationSummary['others']['margin']) }}</span></p>
+                    </div>
+                </div>
+
+                <p class="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{{ $indicationSummary['verdict'] }}</p>
+            </section>
+        @endif
+
         {{-- 1. Repetição de Dezenas do Sorteio Anterior --}}
         <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 space-y-5">
             <div class="flex flex-col justify-between gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center">

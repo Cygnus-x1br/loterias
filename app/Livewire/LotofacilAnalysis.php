@@ -5,6 +5,7 @@ namespace App\Livewire;
 use App\Models\HistoricalResult;
 use App\Services\BetScoringService;
 use App\Services\LotofacilStatisticsService;
+use App\Services\NumberIndicationService;
 use App\Services\StatisticsCache;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -39,6 +40,11 @@ class LotofacilAnalysis extends Component
     public ?array $lastContest = null;
 
     public ?array $lastContestScoreDetails = null;
+
+    /**
+     * Acompanhamento das dezenas mais e menos indicadas (registradas antes de cada sorteio).
+     */
+    public ?array $indicationSummary = null;
 
     public int $totalContests = 0;
 
@@ -121,6 +127,7 @@ class LotofacilAnalysis extends Component
         $statisticsService = app(LotofacilStatisticsService::class);
         $this->decadesCycleAnalysis = $statisticsService->getDecadesCycleAnalysis();
         $this->currentDelayAnalysis = $statisticsService->getCurrentDelayAnalysis();
+        $this->indicationSummary = app(NumberIndicationService::class)->summary();
 
         if ($this->lastContest && ! empty($this->lastContest['drawn_numbers'])) {
             try {
