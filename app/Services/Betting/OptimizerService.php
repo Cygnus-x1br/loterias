@@ -19,7 +19,7 @@ class OptimizerService
      *
      * @param  array  $bets  Array de apostas originais (cada aposta é um array de inteiros).
      * @param  array  $params  Parâmetros de otimização (target_bets, min_even, max_score, etc).
-     * @return array Array otimizado contendo apenas as melhores apostas que passaram no filtro.
+     * @return array Array otimizado contendo apenas as apostas que passaram nos filtros e na ordenação por score (critérios de organização, não de probabilidade).
      */
     public function optimize(array $bets, array $params = []): array
     {

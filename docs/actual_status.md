@@ -9,7 +9,7 @@ Este documento compara o que está implementado no código com a especificação
 ## 1. Visão geral
 
 - **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local sem Docker; MariaDB no Docker e em produção.
-- **Testes:** 208 testes PHPUnit, todos passando.
+- **Testes:** 216 testes PHPUnit, todos passando.
 - **Histórico de desenvolvimento:** 49 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
 
 ### 1.1 Modelo de dados
@@ -95,11 +95,11 @@ Legenda: ✅ implementado · 🟡 parcial · ❌ não implementado
 | 23 | Simulação de sorteios | ✅ | `MonteCarloSimulationService` + backtesting histórico em `/simulacoes`; **sem semente e sem intervalo de confiança** |
 | 24 | Comparação de algoritmos | ❌ | — |
 | 25 | Custo e orçamento | ✅ | Configuração por usuário, custo do fechamento, `/financeiro` (ROI por concurso, fechamento e aposta) |
-| 26 | Relatórios e transparência | 🟡 | Relatório da sugestão de grupo-base, avisos de filtros relaxados, chance real de premiação, auditoria e impressão; não há relatório unificado do fechamento |
-| 27 | Testes | ✅ | 161 testes (Feature e Unit) |
+| 26 | Relatórios e transparência | ✅ | `ClosingTransparencyReportService` e seção "Relatório de transparência" na tela do fechamento: método, grupo-base, apostas, custo, parâmetros, faixa de score, garantia e condições, cenários avaliados, método de validação, limitações, aleatoriedade e aviso de não-previsão. A semente aparece como "não registrada" até a implementação do requisito 3.11 |
+| 27 | Testes | ✅ | 216 testes (Feature e Unit) |
 | 28 | Desempenho | 🟡 | Geração sob demanda, bitmasks e enumeração exata (≈ 0,1 s por aposta); a geração de fechamentos roda de forma síncrona, sem progresso nem cancelamento |
-| 29 | Classificação Exato / Heurístico / Simulado | 🟡 | A chance de premiação é rotulada como exata; ciclo, atraso e temperatura são rotulados como heurísticos/descritivos; ainda não é sistemático em todas as telas |
-| 30 | Regras de comunicação | 🟡 | Score e temperatura trazem aviso de que não alteram a probabilidade; o otimizador e os textos antigos ainda falam em "jogos mais fortes" |
+| 29 | Classificação Exato / Heurístico / Simulado | ✅ | Enum `ResultClassification` (Exato, Ótimo comprovado, Viável, Heurístico, Simulado) e selo `<x-result-badge>` no relatório, na chance real de premiação (exato), na auditoria combinatória (exata ou simulada), na auditoria consolidada, no otimizador (heurístico) e no Monte Carlo (simulado); o backtesting é rotulado como resultado histórico. Ciclo, atraso e temperatura seguem rotulados como descritivos |
+| 30 | Regras de comunicação | ✅ | Textos revisados: o otimizador não fala mais em "jogos mais fortes"; a verificação por Monte Carlo deixou de dizer "Garante" e mostra "Sem falhas na amostra"; o Monte Carlo "estima" em vez de "prever"; os textos educativos descrevem a garantia como condicional. Score e temperatura continuam com aviso de que não alteram a probabilidade |
 
 **Requisito transversal 3.11 (determinismo por semente aleatória):** 🟡 A sugestão do grupo-base é determinística e aceita semente; os geradores de apostas, o otimizador e as simulações ainda não.
 
@@ -191,10 +191,10 @@ Em ordem de prioridade:
    - [ ] Criar Policies para `Closing`, `Bet` e `HistoricalResult`.
 2. **Reprodutibilidade e transparência** (Itens 3.11, 26, 29 e 30)
    - [ ] Aceitar e persistir semente aleatória nos geradores de apostas, no otimizador e nas simulações (a sugestão do grupo-base já aceita).
-   - [ ] Rotular sistematicamente cada resultado como Exato, Ótimo comprovado, Viável, Heurístico ou Simulado.
-   - [ ] Adicionar intervalo de confiança de 95% ao Monte Carlo e deixar de chamar amostragem de "garantia confirmada".
-   - [ ] Criar um relatório de transparência do fechamento (método, parâmetros, semente, cobertura, garantias e limitações).
-   - [ ] Revisar os textos do otimizador ("jogos mais fortes").
+   - [x] Rotular sistematicamente cada resultado como Exato, Ótimo comprovado, Viável, Heurístico ou Simulado.
+   - [ ] Adicionar intervalo de confiança de 95% ao Monte Carlo e deixar de chamar amostragem de "garantia confirmada" (o rótulo já foi corrigido na interface; falta o intervalo de confiança).
+   - [x] Criar um relatório de transparência do fechamento (método, parâmetros, semente, cobertura, garantias e limitações). A semente só aparece como "não registrada" até a semente ser persistida.
+   - [x] Revisar os textos do otimizador ("jogos mais fortes").
 3. **Cálculos matemáticos** (Itens 3, 4 e 20)
    - [ ] Tela com P(X=k) de uma aposta simples e apostas equivalentes C(m,15) com custo.
    - [ ] Distribuição completa da melhor pontuação e cenários de menor pontuação.

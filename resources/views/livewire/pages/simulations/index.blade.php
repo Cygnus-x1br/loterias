@@ -208,8 +208,14 @@ new #[Layout('layouts.app', ['title' => 'Simulações e Backtesting'])] class ex
                 Simule como os seus fechamentos teriam se saído financeiramente se tivessem sido apostados nos sorteios passados reais da Lotofácil.
             </p>
             <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base" x-show="activeTab === 'montecarlo'" style="display: none;">
-                Teste seus fechamentos contra milhares de sorteios fictícios matematicamente gerados para prever a taxa de lucro a longo prazo.
+                Teste seus fechamentos contra milhares de sorteios fictícios gerados ao acaso para estimar o retorno médio por amostragem. É uma estimativa, não uma previsão.
             </p>
+            <div class="mt-3" x-show="activeTab === 'backtesting'">
+                <span data-result-kind="historical" class="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700" title="Descreve o que aconteceu no passado; não indica o que vai acontecer nem prova causalidade.">Resultado histórico</span>
+            </div>
+            <div class="mt-3" x-show="activeTab === 'montecarlo'" style="display: none;">
+                <x-result-badge :classification="\App\Services\Betting\ResultClassification::Simulated" />
+            </div>
         </div>
     </section>
 

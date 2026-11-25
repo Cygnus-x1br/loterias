@@ -62,7 +62,7 @@ new #[Layout('layouts.app', ['title' => 'Cobertura Combinatória'])] class exten
                 </p>
                 <div class="mt-6 rounded-xl bg-slate-50 p-4">
                     <h4 class="text-xs font-bold uppercase tracking-wide text-slate-700">Quando usar</h4>
-                    <p class="mt-1 text-xs text-slate-600">Quando o orçamento não for problema (como em Bolões) e a certeza matemática for o foco primário. Possui custo altíssimo para grandes conjuntos.</p>
+                    <p class="mt-1 text-xs text-slate-600">Quando o orçamento não for problema (como em Bolões) e a cobertura total do grupo-base for o foco: se as 15 dezenas sorteadas estiverem no grupo-base, uma das apostas as contém. Não garante que o sorteio caia no grupo-base e tem custo altíssimo para grandes conjuntos.</p>
                 </div>
             </div>
         </article>
@@ -81,7 +81,7 @@ new #[Layout('layouts.app', ['title' => 'Cobertura Combinatória'])] class exten
                 </p>
                 <div class="mt-6 rounded-xl bg-slate-50 p-4">
                     <h4 class="text-xs font-bold uppercase tracking-wide text-slate-700">Quando usar</h4>
-                    <p class="mt-1 text-xs text-slate-600">A melhor relação custo/benefício. Ideal para apostadores individuais ou grupos médios que querem maximizar probabilidades com orçamento controlado.</p>
+                    <p class="mt-1 text-xs text-slate-600">Reduz o custo ao cobrir apenas parte dos cenários, com a garantia condicional descrita acima. Ideal para quem tem orçamento limitado. Uma garantia condicional vale somente se a condição for atendida e não aumenta a chance de acertar 15 pontos.</p>
                 </div>
             </div>
         </article>

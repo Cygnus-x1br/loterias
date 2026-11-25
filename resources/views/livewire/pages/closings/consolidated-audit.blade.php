@@ -305,9 +305,9 @@ new #[Layout('layouts.app', ['title' => 'Auditoria Combinatória Consolidada'])]
                         <p class="text-sm text-slate-600 mt-1">
                             Analisados {{ number_format($immediateCoverage['quantidade_cenarios_analisados'], 0, ',', '.') }} cenários 
                             @if(isset($immediateCoverage['is_monte_carlo']) && $immediateCoverage['is_monte_carlo'])
-                                <strong>(Aproximação Simulação)</strong>
+                                <x-result-badge :classification="\App\Services\Betting\ResultClassification::Simulated" />
                             @else
-                                <strong>(Validação Exata)</strong>
+                                <x-result-badge :classification="\App\Services\Betting\ResultClassification::Exact" />
                             @endif
                         </p>
                     </div>

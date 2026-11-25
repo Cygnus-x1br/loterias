@@ -23,6 +23,8 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
 
     public bool $compareLastResult = true;
 
+    public bool $showTransparencyReport = false;
+
     // Modal e dados de "Marcar como Apostado"
     public bool $showMarkAsPlacedModal = false;
     public ?int $placedContestNumber = null;
@@ -651,6 +653,11 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
     /**
      * Calcula a probabilidade exata do fechamento premiar no próximo sorteio.
      */
+    public function toggleTransparencyReport(): void
+    {
+        $this->showTransparencyReport = ! $this->showTransparencyReport;
+    }
+
     public function calculateProbabilities(): void
     {
         $this->probabilityError = null;
@@ -680,6 +687,13 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         return [
             'bets' => $bets,
             'probabilityReport' => $betsCount > 0 ? app(ClosingProbabilityService::class)->cached($this->allBetNumbers()) : null,
+            'transparencyReport' => $this->showTransparencyReport && $betsCount > 0
+                ? app(\App\Services\Betting\ClosingTransparencyReportService::class)->build(
+                    $this->closing,
+                    app(ClosingProbabilityService::class)->cached($this->allBetNumbers()),
+                    $this->combinatorialCoverage,
+                )
+                : null,
             'canCalculateProbabilities' => $betsCount > 0 && $betsCount <= ClosingProbabilityService::MAX_BETS,
             'friends' => $friends,
             'sharedUsers' => $sharedUsers,
@@ -1185,7 +1199,10 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                 <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
-                            <h2 class="text-lg font-bold text-slate-900">Chance real de premiação</h2>
+                            <h2 class="flex items-center gap-2 text-lg font-bold text-slate-900">
+                                Chance real de premiação
+                                <x-result-badge :classification="\App\Services\Betting\ResultClassification::Exact" />
+                            </h2>
                             <p class="mt-1 text-sm text-slate-500">
                                 Probabilidade de pelo menos uma aposta atingir cada faixa no próximo sorteio, calculada sobre todos os 3.268.760 resultados possíveis.
                             </p>
@@ -1260,6 +1277,133 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                                 *Referência: a mesma quantidade de apostas simples, como se não tivessem dezenas em comum.
                             @endif
                         </p>
+                    @endif
+                </section>
+            @endif
+
+            {{-- Relatório de transparência --}}
+            @if ($closing->bets()->exists())
+                <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" data-transparency-report>
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900">Relatório de transparência</h2>
+                            <p class="mt-1 text-sm text-slate-500">
+                                Método, parâmetros, custo, cobertura, garantias e limitações do fechamento, cada resultado com a sua classificação.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            wire:click="toggleTransparencyReport"
+                            class="inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                        >
+                            {{ $showTransparencyReport ? 'Ocultar relatório' : 'Ver relatório' }}
+                        </button>
+                    </div>
+
+                    @if ($transparencyReport)
+                        @php $report = $transparencyReport; @endphp
+                        <dl class="mt-5 space-y-4 text-sm">
+                            <div>
+                                <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Método</dt>
+                                <dd class="mt-1 flex flex-wrap items-center gap-2 text-slate-800">
+                                    <span class="font-semibold">{{ $report['method']['label'] }}</span>
+                                    <x-result-badge :classification="$report['method']['classification']" />
+                                </dd>
+                                <dd class="mt-1 text-xs text-slate-500">{{ $report['method']['note'] }}</dd>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                                <div>
+                                    <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Grupo-base</dt>
+                                    <dd class="mt-1 text-slate-800">{{ count($report['base_numbers']) }} dezenas</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Apostas</dt>
+                                    <dd class="mt-1 text-slate-800">{{ $report['bets_count'] }} de {{ $report['bet_size'] }} dezenas</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Custo</dt>
+                                    <dd class="mt-1 flex items-center gap-2 text-slate-800">
+                                        R$ {{ number_format($report['cost']['total'], 2, ',', '.') }}
+                                        <x-result-badge :classification="$report['cost']['classification']" />
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Semente</dt>
+                                    <dd class="mt-1 text-slate-800">Não registrada</dd>
+                                </div>
+                            </div>
+                            <p class="text-xs text-slate-500">{{ $report['seed']['note'] }}</p>
+
+                            <div>
+                                <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Parâmetros</dt>
+                                @forelse ($report['parameters'] as $parameter)
+                                    <dd class="mt-1 text-slate-700"><span class="font-medium">{{ $parameter['label'] }}:</span> {{ $parameter['value'] }}</dd>
+                                @empty
+                                    <dd class="mt-1 text-slate-500">Nenhum filtro ou parâmetro adicional.</dd>
+                                @endforelse
+                            </div>
+
+                            <div>
+                                <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Pontuação das apostas</dt>
+                                <dd class="mt-1 flex flex-wrap items-center gap-2 text-slate-800">
+                                    @if ($report['scores']['computed'])
+                                        Menor {{ $report['scores']['min'] }} · maior {{ $report['scores']['max'] }}
+                                    @else
+                                        Não calculada
+                                    @endif
+                                    <x-result-badge :classification="$report['scores']['classification']" />
+                                </dd>
+                                <dd class="mt-1 text-xs text-slate-500">{{ $report['scores']['note'] }}</dd>
+                            </div>
+
+                            <div>
+                                <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Cobertura e garantia</dt>
+                                @if ($report['probability'])
+                                    <dd class="mt-1 flex flex-wrap items-center gap-2 text-slate-800">
+                                        Chance de pelo menos 11 pontos: {{ number_format($report['probability']['at_least'][11]['probability'] * 100, 2, ',', '.') }}%
+                                        <x-result-badge :classification="$report['probability']['classification']" />
+                                    </dd>
+                                @else
+                                    <dd class="mt-1 text-slate-500">Chance real de premiação ainda não calculada.</dd>
+                                @endif
+                                @if ($report['guarantee']['available'])
+                                    <dd class="mt-2 flex flex-wrap items-center gap-2 text-slate-800">
+                                        {{ $report['guarantee']['condition'] }}
+                                        <x-result-badge :classification="$report['guarantee']['classification']" />
+                                    </dd>
+                                    <dd class="mt-1 text-xs text-slate-500">{{ $report['guarantee']['summary'] }}</dd>
+                                @else
+                                    <dd class="mt-2 text-xs text-slate-500">{{ $report['guarantee']['note'] }}</dd>
+                                @endif
+                                @if ($report['scenarios_evaluated'])
+                                    <dd class="mt-1 text-xs text-slate-500">Cenários avaliados: {{ number_format($report['scenarios_evaluated'], 0, ',', '.') }}</dd>
+                                @endif
+                            </div>
+
+                            <div>
+                                <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Método de validação</dt>
+                                <dd class="mt-1 text-slate-700">{{ $report['validation'] }}</dd>
+                            </div>
+
+                            @if ($report['warnings'])
+                                <div>
+                                    <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Avisos da geração</dt>
+                                    @foreach ($report['warnings'] as $warning)
+                                        <dd class="mt-1 text-amber-700">{{ $warning }}</dd>
+                                    @endforeach
+                                </div>
+                            @endif
+
+                            <div>
+                                <dt class="text-xs font-bold uppercase tracking-wide text-slate-500">Limitações e aleatoriedade</dt>
+                                @foreach (array_merge($report['limitations'], $report['randomness']) as $note)
+                                    <dd class="mt-1 text-slate-600">• {{ $note }}</dd>
+                                @endforeach
+                            </div>
+                        </dl>
+
+                        <p class="mt-5 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">{{ $report['disclaimer'] }}</p>
                     @endif
                 </section>
             @endif
@@ -1663,6 +1807,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
                         </svg>
                         <h3 class="text-sm font-bold text-indigo-900">Auditoria Combinatória</h3>
+                        <x-result-badge :classification="! empty($combinatorialCoverage['is_monte_carlo']) ? \App\Services\Betting\ResultClassification::Simulated : \App\Services\Betting\ResultClassification::Exact" />
                     </div>
 
                     <div class="text-xs text-indigo-800 font-medium pb-2 border-b border-indigo-100">
@@ -1677,7 +1822,9 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
                     <div class="flex items-center justify-between gap-4">
                         <dt class="text-xs text-slate-500">Garantia Atingida?</dt>
                         <dd>
-                            @if($combinatorialCoverage['garantia_confirmada'])
+                            @if($combinatorialCoverage['garantia_confirmada'] && ! empty($combinatorialCoverage['is_monte_carlo']))
+                                <span class="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-700" title="Amostragem: não prova a garantia">Sem falhas na amostra</span>
+                            @elseif($combinatorialCoverage['garantia_confirmada'])
                                 <span class="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">Sim (100%)</span>
                             @else
                                 <span class="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">Parcial</span>

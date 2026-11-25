@@ -90,7 +90,7 @@ class CoverageAuditorService
                 '15_acertos' => $this->percentage($coveredCount15, $scenariosCount),
             ],
             'garantia_confirmada' => $targetCoverage === $scenariosCount,
-            'condicoes_da_garantia' => "Garante {$guaranteePoints} acertos se acertar {$guaranteeHits} dezenas no grupo-base de ".count($baseNumbers).' dezenas.',
+            'condicoes_da_garantia' => "Garantia condicional: {$guaranteePoints} acertos, somente se acertar {$guaranteeHits} dezenas no grupo-base de ".count($baseNumbers).' dezenas.',
         ];
     }
 
@@ -188,7 +188,7 @@ class CoverageAuditorService
                 '15_acertos' => $this->percentage($coveredCount15, $actualIterations),
             ],
             'garantia_confirmada' => $targetCoverage === $actualIterations, // Very close to 100% or 100%
-            'condicoes_da_garantia' => "Simulação Monte Carlo ({$actualIterations} cenários): Garante {$guaranteePoints} acertos se acertar {$guaranteeHits} dezenas no grupo-base de ".count($baseNumbers).' dezenas.',
+            'condicoes_da_garantia' => "Estimativa por simulação Monte Carlo ({$actualIterations} cenários, não é garantia): {$guaranteePoints} acertos se acertar {$guaranteeHits} dezenas no grupo-base de ".count($baseNumbers).' dezenas.',
         ];
     }
 

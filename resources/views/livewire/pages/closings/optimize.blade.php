@@ -109,6 +109,7 @@ new #[Layout('layouts.app', ['title' => 'Otimizar Fechamento'])] class extends C
     <div class="flex items-center justify-between">
         <h1 class="text-2xl font-extrabold text-slate-800">
             Otimizar Fechamento
+            <x-result-badge :classification="\App\Services\Betting\ResultClassification::Heuristic" class="align-middle" />
         </h1>
         <a href="{{ route('closings.show', $closing) }}" class="text-sm font-semibold text-indigo-600 hover:text-indigo-800" wire:navigate>
             &larr; Voltar
@@ -126,7 +127,7 @@ new #[Layout('layouts.app', ['title' => 'Otimizar Fechamento'])] class extends C
             <div class="ml-3">
                 <h3 class="text-sm font-medium text-rose-800">Atenção sobre Garantias Matemáticas</h3>
                 <div class="mt-2 text-sm text-rose-700">
-                    <p>Ao descartar apostas originais, você perde qualquer garantia 100% (ex: 14 pontos) que o fechamento possuía. O sistema irá manter apenas os jogos mais fortes estatisticamente.</p>
+                    <p>Ao descartar apostas originais, você perde qualquer garantia 100% (ex: 14 pontos) que o fechamento possuía. O sistema mantém apenas as apostas que passarem nos filtros escolhidos e tiverem maior score. Esses critérios organizam as apostas; não aumentam a chance de acerto.</p>
                 </div>
             </div>
         </div>
