@@ -731,4 +731,66 @@ class BalancedBetGeneratorTest extends TestCase
 
         app(BalancedBetGenerator::class)->validate($closing);
     }
+
+    private function weightedClosing(array $weights, int $plannedBets = 20): Closing
+    {
+        return Closing::factory()->create([
+            'user_id' => User::factory()->create()->id,
+            'method' => 'balanced',
+            'base_numbers' => range(1, 21),
+            'bet_size' => 15,
+            'planned_bets' => $plannedBets,
+            'parameters' => ['number_weights' => $weights],
+        ]);
+    }
+
+    public function test_weight_zero_keeps_the_number_out_of_every_bet(): void
+    {
+        $closing = $this->weightedClosing([1 => 0, 2 => 0, 3 => 0]);
+
+        app(ClosingGenerator::class)->generate($closing);
+
+        $bets = Bet::where('closing_id', $closing->id)->pluck('numbers')->all();
+        $this->assertCount(20, $bets);
+        foreach ($bets as $numbers) {
+            $this->assertSame([], array_intersect($numbers, [1, 2, 3]));
+        }
+    }
+
+    public function test_higher_weight_makes_a_number_appear_more_often(): void
+    {
+        $closing = $this->weightedClosing([10 => 5, 11 => 0.2], 60);
+
+        app(ClosingGenerator::class)->generate($closing);
+
+        $bets = Bet::where('closing_id', $closing->id)->pluck('numbers')->all();
+        $favored = count(array_filter($bets, fn (array $numbers): bool => in_array(10, $numbers, true)));
+        $avoided = count(array_filter($bets, fn (array $numbers): bool => in_array(11, $numbers, true)));
+
+        $this->assertGreaterThan($avoided, $favored);
+    }
+
+    public function test_rejects_invalid_number_weights(): void
+    {
+        $generator = app(BalancedBetGenerator::class);
+
+        foreach ([[30 => 2], [1 => -1], [1 => 6], [1 => 'alto']] as $weights) {
+            try {
+                $generator->validate($this->weightedClosing($weights));
+                $this->fail('Pesos inválidos deveriam ser rejeitados: '.json_encode($weights));
+            } catch (InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function test_rejects_weights_that_leave_too_few_numbers(): void
+    {
+        $weights = array_fill_keys(range(1, 7), 0);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('restam apenas 14');
+
+        app(BalancedBetGenerator::class)->validate($this->weightedClosing($weights));
+    }
 }

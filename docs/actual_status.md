@@ -9,7 +9,7 @@ Este documento compara o que está implementado no código com a especificação
 ## 1. Visão geral
 
 - **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local sem Docker; MariaDB no Docker e em produção.
-- **Testes:** 200 testes PHPUnit, todos passando.
+- **Testes:** 208 testes PHPUnit, todos passando.
 - **Histórico de desenvolvimento:** 49 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
 
 ### 1.1 Modelo de dados
@@ -88,7 +88,7 @@ Legenda: ✅ implementado · 🟡 parcial · ❌ não implementado
 | 16 | Sistemas de roda | 🟡 | `WheelBetGenerator` (fixas + variáveis); não calcula cobertura de pares e trincas |
 | 17 | Pares/ímpares e faixas numéricas | ✅ | `BalancedBetGenerator`, `OptimizerService`, `BetScoringService` |
 | 18 | Estatísticas históricas | ✅ | `LotofacilStatisticsService`: frequência, atraso, ciclos, temperatura (regra única e descritiva), repetição, score |
-| 19 | Geração ponderada / filtros heurísticos | 🟡 | Pontuação no `BalancedBetGenerator` e no `SmartRandomBetService`; opção "Distribuir apostas" (mínima sobreposição); não há pesos configuráveis pelo usuário |
+| 19 | Geração ponderada / filtros heurísticos | 🟡 | Filtros de pares/ímpares, soma, primos, Fibonacci, score, temperatura e repetidas; pontuação no `BalancedBetGenerator` e no `SmartRandomBetService`; "Distribuir apostas" (mínima sobreposição); **pesos por dezena** configuráveis (0 evita, 1 neutro, até 5; rotulados como distribuição artificial de geração) nas telas de criar e editar. Faltam pesos por par/padrão e limite de concentração por dezena |
 | 20 | Cálculo exato de cobertura | 🟡 | Cobertura por faixa (≥11 a 15) exata sobre o universo completo em `ClosingProbabilityService`; auditoria de garantia exata dentro do grupo-base em `CoverageAuditorService`; não lista os cenários de menor pontuação |
 | 21 | Garantia condicional | 🟡 | A auditoria reporta a condição ("garante X se acertar Y no grupo-base"); não há verificador genérico de condições |
 | 22 | Probabilidade de pelo menos uma premiação | ✅ | Cálculo exato em `ClosingProbabilityService` (até 150 apostas), exibido no fechamento |

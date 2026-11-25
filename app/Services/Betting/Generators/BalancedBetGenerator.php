@@ -30,6 +30,11 @@ class BalancedBetGenerator implements BetGeneratorInterface
      */
     protected const SPREAD_CANDIDATES = 25;
 
+    /**
+     * Maior peso que o usuário pode atribuir a uma dezena.
+     */
+    protected const MAX_NUMBER_WEIGHT = 5;
+
     public function __construct(
         protected HistoricalDrawFilter $historicalDrawFilter
     ) {}
@@ -52,6 +57,11 @@ class BalancedBetGenerator implements BetGeneratorInterface
 
         if (isset($parameters['spread_bets']) && ! is_bool($parameters['spread_bets'])) {
             throw new InvalidArgumentException('A opção de distribuir as apostas (spread_bets) deve ser verdadeira ou falsa.');
+        }
+
+        // Validação dos pesos por dezena (distribuição artificial de geração)
+        if (isset($parameters['number_weights'])) {
+            $this->validateNumberWeights($parameters['number_weights'], $closing->base_numbers ?? [], $betSize);
         }
 
         // Validação de Equilíbrio Par/Ímpar
@@ -133,6 +143,40 @@ class BalancedBetGenerator implements BetGeneratorInterface
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Pesos por dezena: 0 evita a dezena; 1 é neutro; valores maiores a favorecem (máximo 5).
+     *
+     * @param  array<int|string, mixed>  $weights
+     * @param  array<int>  $baseNumbers
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function validateNumberWeights(mixed $weights, array $baseNumbers, int $betSize): void
+    {
+        if (! is_array($weights)) {
+            throw new InvalidArgumentException('Os pesos por dezena devem ser informados como uma lista dezena => peso.');
+        }
+
+        foreach ($weights as $number => $weight) {
+            if (! is_numeric($number) || (int) $number < 1 || (int) $number > 25) {
+                throw new InvalidArgumentException('Os pesos por dezena só podem ser definidos para dezenas de 1 a 25.');
+            }
+
+            if (! is_numeric($weight) || $weight < 0 || $weight > self::MAX_NUMBER_WEIGHT) {
+                throw new InvalidArgumentException(
+                    sprintf('O peso da dezena %d deve estar entre 0 e %d.', (int) $number, self::MAX_NUMBER_WEIGHT)
+                );
+            }
+        }
+
+        $usable = count(array_filter($baseNumbers, fn (int $number): bool => (float) ($weights[$number] ?? 1) > 0));
+        if ($baseNumbers !== [] && $usable < $betSize) {
+            throw new InvalidArgumentException(
+                sprintf('Com peso 0 em tantas dezenas, restam apenas %d no grupo-base para montar apostas de %d dezenas.', $usable, $betSize)
+            );
         }
     }
 
@@ -231,6 +275,11 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $numberScores[$num] = $score;
         }
 
+        $numberWeights = [];
+        foreach (($parameters['number_weights'] ?? []) as $number => $weight) {
+            $numberWeights[(int) $number] = (float) $weight;
+        }
+
         $generatedCount = 0;
         $attempts = 0;
         $maxAttemptsPerBet = 2000;
@@ -278,9 +327,9 @@ class BalancedBetGenerator implements BetGeneratorInterface
                 $tolerance = intdiv($attempts, 500);
 
                 if ($targetRepetitions !== null && ! empty($lastDrawnNumbers)) {
-                    $currentBet = $this->generateStratifiedCombination($repeatedPool, $nonRepeatedPool, $targetRepetitions, $betSize, $usageCount, $numberScores);
+                    $currentBet = $this->generateStratifiedCombination($repeatedPool, $nonRepeatedPool, $targetRepetitions, $betSize, $usageCount, $numberScores, $numberWeights);
                 } else {
-                    $currentBet = $this->generateRandomCombination($baseNumbers, $betSize, $usageCount, $numberScores);
+                    $currentBet = $this->generateRandomCombination($baseNumbers, $betSize, $usageCount, $numberScores, $numberWeights);
                 }
 
                 sort($currentBet);
@@ -472,15 +521,18 @@ class BalancedBetGenerator implements BetGeneratorInterface
      * @param  array<int>  $baseNumbers
      * @param  array<int, int>  $usageCount
      * @param  array<int, float>  $numberScores
+     * @param  array<int, float>  $numberWeights  Pesos do usuário por dezena (0 evita, 1 é neutro)
      * @return array<int>
      */
-    protected function generateRandomCombination(array $baseNumbers, int $betSize, array $usageCount = [], array $numberScores = []): array
+    protected function generateRandomCombination(array $baseNumbers, int $betSize, array $usageCount = [], array $numberScores = [], array $numberWeights = []): array
     {
-        if (empty($usageCount) && empty($numberScores)) {
+        if (empty($usageCount) && empty($numberScores) && empty($numberWeights)) {
             shuffle($baseNumbers);
 
             return array_slice($baseNumbers, 0, $betSize);
         }
+
+        $usageCount = $usageCount ?: [0 => 0];
 
         // Pondera a seleção para favorecer dezenas menos usadas e com maior score
         $weightedPool = [];
@@ -492,9 +544,23 @@ class BalancedBetGenerator implements BetGeneratorInterface
                 $weight += round($numberScores[$num]);
             }
 
+            // Peso do usuário: multiplicador sobre o peso heurístico (0 tira a dezena do sorteio)
+            $userWeight = $numberWeights[$num] ?? 1.0;
+            $weight = $userWeight > 0 ? max(1, (int) round($weight * $userWeight)) : 0;
+
             for ($i = 0; $i < $weight; $i++) {
                 $weightedPool[] = $num;
             }
+        }
+
+        // Com pesos 0, o sorteio só pode escolher entre as dezenas restantes; se faltarem, completa sem peso
+        $eligible = count(array_unique($weightedPool));
+        if ($eligible < $betSize) {
+            $selected = array_values(array_unique($weightedPool));
+            $others = array_values(array_diff($baseNumbers, $selected));
+            shuffle($others);
+
+            return array_merge($selected, array_slice($others, 0, $betSize - count($selected)));
         }
 
         $selected = [];
@@ -512,7 +578,7 @@ class BalancedBetGenerator implements BetGeneratorInterface
     /**
      * Gera uma combinação respeitando cotas exatas de repetição.
      */
-    protected function generateStratifiedCombination(array $repeatedPool, array $nonRepeatedPool, int $targetRepetitions, int $betSize, array $usageCount, array $numberScores = []): array
+    protected function generateStratifiedCombination(array $repeatedPool, array $nonRepeatedPool, int $targetRepetitions, int $betSize, array $usageCount, array $numberScores = [], array $numberWeights = []): array
     {
         $targetRepetitions = min($targetRepetitions, count($repeatedPool));
         $targetNonRepetitions = $betSize - $targetRepetitions;
@@ -523,8 +589,8 @@ class BalancedBetGenerator implements BetGeneratorInterface
             $targetRepetitions = $betSize - $targetNonRepetitions;
         }
 
-        $repSelection = $this->generateRandomCombination($repeatedPool, $targetRepetitions, $usageCount, $numberScores);
-        $nonRepSelection = $this->generateRandomCombination($nonRepeatedPool, $targetNonRepetitions, $usageCount, $numberScores);
+        $repSelection = $this->generateRandomCombination($repeatedPool, $targetRepetitions, $usageCount, $numberScores, $numberWeights);
+        $nonRepSelection = $this->generateRandomCombination($nonRepeatedPool, $targetNonRepetitions, $usageCount, $numberScores, $numberWeights);
 
         return array_merge($repSelection, $nonRepSelection);
     }

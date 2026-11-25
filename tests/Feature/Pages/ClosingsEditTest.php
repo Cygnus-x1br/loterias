@@ -224,6 +224,38 @@ class ClosingsEditTest extends TestCase
         $this->assertTrue($closing->refresh()->parameters['spread_bets']);
     }
 
+    public function test_number_weights_are_loaded_kept_and_editable(): void
+    {
+        $closing = Closing::create([
+            'user_id' => $this->user->id,
+            'name' => 'Fechamento ponderado',
+            'method' => 'balanced',
+            'base_numbers' => range(1, 21),
+            'bet_size' => 15,
+            'planned_bets' => 10,
+            'status' => 'draft',
+            'parameters' => ['number_weights' => [3 => 0.0, 7 => 4.0]],
+        ]);
+
+        // Salvar sem mexer preserva os pesos
+        Volt::actingAs($this->user)
+            ->test('pages.closings.edit', ['closing' => $closing])
+            ->assertSet('number_weights', [3 => 0.0, 7 => 4.0])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertEquals([3 => 0.0, 7 => 4.0], $closing->refresh()->parameters['number_weights']);
+
+        // Voltar um peso para 1 (neutro) o remove
+        Volt::actingAs($this->user)
+            ->test('pages.closings.edit', ['closing' => $closing])
+            ->set('number_weights.3', '1')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertEquals([7 => 4.0], $closing->refresh()->parameters['number_weights']);
+    }
+
     public function test_show_page_calculates_exact_probabilities(): void
     {
         $closing = Closing::create([

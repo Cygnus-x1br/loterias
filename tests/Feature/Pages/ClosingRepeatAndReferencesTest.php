@@ -343,4 +343,47 @@ class ClosingRepeatAndReferencesTest extends TestCase
         $this->assertStringNotContainsString('data-last-drawn', $html);
         $this->assertStringNotContainsString('data-delayed-number', $html);
     }
+
+    public function test_create_page_saves_number_weights_only_for_base_numbers_and_non_neutral(): void
+    {
+        Volt::actingAs($this->user)
+            ->test('pages.closings.create')
+            ->set('name', 'Com pesos')
+            ->set('method', 'balanced')
+            ->set('base_numbers', range(1, 20))
+            ->set('bet_size', 15)
+            ->set('planned_bets', 5)
+            ->set('number_weights', [1 => '0', 2 => '3', 3 => '1', 4 => '', 24 => '4'])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $closing = Closing::where('name', 'Com pesos')->first();
+
+        $this->assertNotNull($closing);
+        // Peso 1 (neutro), vazio e dezena fora do grupo-base não são gravados
+        $this->assertEquals([1 => 0.0, 2 => 3.0], $closing->parameters['number_weights']);
+    }
+
+    public function test_create_page_rejects_weight_above_the_limit(): void
+    {
+        Volt::actingAs($this->user)
+            ->test('pages.closings.create')
+            ->set('name', 'Peso alto')
+            ->set('method', 'balanced')
+            ->set('base_numbers', range(1, 20))
+            ->set('number_weights', [2 => '9'])
+            ->call('save')
+            ->assertHasErrors(['number_weights.2']);
+
+        $this->assertDatabaseMissing('closings', ['name' => 'Peso alto']);
+    }
+
+    public function test_create_page_explains_that_weights_are_not_a_prediction(): void
+    {
+        Volt::actingAs($this->user)
+            ->test('pages.closings.create')
+            ->set('method', 'balanced')
+            ->assertSee('Pesos por dezena')
+            ->assertSee('não torna a combinação mais provável');
+    }
 }

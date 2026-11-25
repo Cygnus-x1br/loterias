@@ -62,6 +62,9 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
 
     public bool $spread_bets = false;
 
+    /** @var array<int|string, string|int|float> Peso por dezena (0 evita, 1 neutro, até 5) */
+    public array $number_weights = [];
+
     // Parâmetros para sistema de roda
     public array $fixed_numbers = [];
     public array $variable_numbers = [];
@@ -126,6 +129,7 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                 $this->max_score = isset($params['score_range'][1]) ? (int) $params['score_range'][1] : null;
             }
             $this->spread_bets = (bool) ($params['spread_bets'] ?? false);
+            $this->number_weights = is_array($params['number_weights'] ?? null) ? $params['number_weights'] : [];
             if (isset($params['temperature_distribution']) && is_array($params['temperature_distribution'])) {
                 $temp = $params['temperature_distribution'];
                 if (isset($temp['hot']) && is_array($temp['hot'])) {
@@ -294,6 +298,7 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
             $rules['max_neutral'] = ['nullable', 'integer', 'min:0', 'max:15', 'gte:min_neutral'];
             $rules['min_cold'] = ['nullable', 'integer', 'min:0', 'max:15'];
             $rules['max_cold'] = ['nullable', 'integer', 'min:0', 'max:15', 'gte:min_cold'];
+            $rules['number_weights.*'] = ['nullable', 'numeric', 'min:0', 'max:5'];
         }
 
         // Regras condicionais para o método 'wheel'
@@ -673,6 +678,15 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                 }
                 if ($this->spread_bets) {
                     $parameters['spread_bets'] = true;
+                }
+                $weights = [];
+                foreach ($this->number_weights as $number => $weight) {
+                    if (in_array((int) $number, $this->base_numbers, true) && $weight !== '' && $weight !== null && (float) $weight !== 1.0) {
+                        $weights[(int) $number] = (float) $weight;
+                    }
+                }
+                if ($weights !== []) {
+                    $parameters['number_weights'] = $weights;
                 }
                 if (empty($parameters)) {
                     $parameters = null;
@@ -1549,6 +1563,40 @@ new #[Layout('layouts.app', ['title' => 'Editar fechamento'])] class extends Com
                                     </span>
                                 </span>
                             </label>
+                        </div>
+
+                        {{-- Pesos por dezena --}}
+                        <div class="pt-2 border-t border-indigo-100 space-y-3" data-number-weights>
+                            <div>
+                                <h4 class="text-sm font-semibold text-slate-700">Pesos por dezena (opcional)</h4>
+                                <p class="mt-1 text-xs text-slate-500">
+                                    Favoreça ou evite dezenas do grupo-base na montagem das apostas. Peso 1 é neutro, 0 evita a dezena e valores maiores a favorecem (até 5).
+                                    É uma distribuição artificial de geração: não torna a combinação mais provável de ser sorteada, e os filtros acima continuam valendo.
+                                </p>
+                            </div>
+                            @if (count($base_numbers) === 0)
+                                <p class="text-xs text-slate-400">Selecione o grupo-base para definir os pesos.</p>
+                            @else
+                                <div class="grid grid-cols-5 gap-2 sm:grid-cols-8">
+                                    @foreach (collect($base_numbers)->sort()->values() as $weightNumber)
+                                        <label class="flex flex-col items-center gap-1 text-xs font-bold text-slate-600">
+                                            {{ str_pad((string) $weightNumber, 2, '0', STR_PAD_LEFT) }}
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="5"
+                                                step="0.5"
+                                                placeholder="1"
+                                                wire:model="number_weights.{{ $weightNumber }}"
+                                                class="w-full rounded-md border-slate-300 px-1 py-1 text-center text-xs shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                            >
+                                        </label>
+                                    @endforeach
+                                </div>
+                                @error('number_weights.*')
+                                    <p class="text-sm font-medium text-rose-600">{{ $message }}</p>
+                                @enderror
+                            @endif
                         </div>
 
                         {{-- Distribuição de Temperatura --}}
