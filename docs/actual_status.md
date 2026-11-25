@@ -128,7 +128,7 @@ Verificações feitas contra a série real (3.776 concursos) e por enumeração 
 | Sugestão de grupo-base | Tamanho pedido sempre respeitado, validação no servidor, equilíbrio recalculado a cada dezena |
 | Concursos passados | Filtro dentro dos geradores (substitui em vez de descartar); reduzido mantém a garantia; "aleatório inteligente" sem cache desatualizado |
 | Gerador equilibrado | Avisos de filtros relaxados; cotas de repetição pela probabilidade real; opção de mínima sobreposição |
-| Score | Escala 0–1000 real (máximo bruto de 900 pontos), faixa da soma 175–215, sequências consecutivas sem depender de cache, ciclo e atraso rotulados como heurísticos |
+| Score | Escala 0–1000 real (máximo bruto de 900 pontos), faixa da soma 175–215, sequências consecutivas sem depender de cache, ciclo e atraso rotulados como heurísticos; o score de cada concurso usa apenas concursos anteriores a ele (`ScoringPatternTracker`) |
 | Temperatura | Regra única (frequência no período, atraso só desempata) em gerador, score e comparativo |
 | Cache | `StatisticsCache` versionado; seeder invalida o cache |
 
@@ -152,11 +152,10 @@ Verificações feitas contra a série real (3.776 concursos) e por enumeração 
 1. **Série histórica sem controle de acesso:** qualquer usuário autenticado pode criar, editar e excluir sorteios em `/sorteios`. Como os dados são globais, isso afeta a conferência, as estatísticas e o financeiro de todos. Falta um papel de administrador.
 2. **Autorização espalhada:** não há Policies; as verificações de dono e compartilhamento ficam no `mount()` de cada página Volt.
 3. **Geração síncrona:** fechamentos grandes (integral com 20 ou mais dezenas = 15.504 ou mais apostas) rodam na requisição web e podem estourar o timeout. Só a auditoria consolidada usa fila.
-4. **Score dos concursos antigos com informação futura:** dezenas, pares e trios "mais sorteados" são calculados com a série inteira, inclusive concursos posteriores ao que está sendo pontuado.
-5. **Faixas de score salvas:** fechamentos criados antes da nova escala (0–1000 real) podem ter `score_range` calibrado na escala antiga; o total agora sai cerca de 11% maior para os mesmos critérios.
-6. **Monte Carlo:** a auditoria por amostragem marca "garantia confirmada" com base em amostra, e a simulação financeira usa prêmios fixos estimados para 14 e 15 pontos.
-7. **Após importar a série histórica:** rodar `php artisan lotofacil:calculate-scores` (o seeder grava sem calcular score e ciclo). O `DatabaseSeeder` cria apenas o usuário de desenvolvimento; a série exige `php artisan db:seed --class=HistoricalResultSeeder`.
-8. **Arquivos soltos:** `parse_xlsx.py` na raiz parece sobra de desenvolvimento; `prompt_base.MD` termina com um resto de colagem ("Mensagem para o Agente / Adicionar / Ferramentas").
+4. **Faixas de score salvas:** fechamentos criados antes da nova escala (0–1000 real) podem ter `score_range` calibrado na escala antiga; o total agora sai cerca de 11% maior para os mesmos critérios.
+5. **Monte Carlo:** a auditoria por amostragem marca "garantia confirmada" com base em amostra, e a simulação financeira usa prêmios fixos estimados para 14 e 15 pontos.
+6. **Após importar a série histórica:** rodar `php artisan lotofacil:calculate-scores` (o seeder grava sem calcular score e ciclo). O `DatabaseSeeder` cria apenas o usuário de desenvolvimento; a série exige `php artisan db:seed --class=HistoricalResultSeeder`.
+7. **Arquivos soltos:** `parse_xlsx.py` na raiz parece sobra de desenvolvimento; `prompt_base.MD` termina com um resto de colagem ("Mensagem para o Agente / Adicionar / Ferramentas").
 
 ---
 
@@ -173,18 +172,16 @@ Em ordem de prioridade:
    - [ ] Adicionar intervalo de confiança de 95% ao Monte Carlo e deixar de chamar amostragem de "garantia confirmada".
    - [ ] Criar um relatório de transparência do fechamento (método, parâmetros, semente, cobertura, garantias e limitações).
    - [ ] Revisar os textos do otimizador ("jogos mais fortes").
-3. **Score**
-   - [ ] Calcular dezenas, pares e trios mais sorteados só com concursos anteriores ao pontuado.
-4. **Cálculos matemáticos** (Itens 3, 4 e 20)
+3. **Cálculos matemáticos** (Itens 3, 4 e 20)
    - [ ] Tela com P(X=k) de uma aposta simples e apostas equivalentes C(m,15) com custo.
    - [ ] Distribuição completa da melhor pontuação e cenários de menor pontuação.
-5. **Desempenho** (Item 28)
+4. **Desempenho** (Item 28)
    - [ ] Mover a geração de fechamentos grandes para jobs, com progresso e cancelamento.
-6. **Otimização avançada** (Itens 12 a 14 e 24)
+5. **Otimização avançada** (Itens 12 a 14 e 24)
    - [ ] Busca local sobre a solução gulosa e sobre a distribuição das apostas (maximizar a chance de pelo menos um prêmio).
    - [ ] Simulated annealing.
    - [ ] Algoritmo genético.
    - [ ] Módulo de comparação entre métodos (mesmo grupo-base, orçamento e semente), usando `ClosingProbabilityService`.
-7. **Rodas e cobertura** (Itens 8 e 16)
+6. **Rodas e cobertura** (Itens 8 e 16)
    - [ ] Calcular cobertura de pares e trincas nas rodas.
    - [ ] Pesos por cenário.

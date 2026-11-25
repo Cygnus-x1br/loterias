@@ -45,6 +45,15 @@ class BetScoringServiceTest extends TestCase
                     collect(['01-02-03' => 20, '04-05-06' => 15])
                 );
 
+                $mock->shouldReceive('getScoringPatterns')->andReturn([
+                    'top_numbers' => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                    'top_pairs' => ['01-02', '03-04', '05-06'],
+                    'top_trios' => ['01-02-03', '04-05-06'],
+                    'top_consecutive_pairs' => ['01-02', '03-04', '05-06'],
+                    'top_consecutive_trios' => ['01-02-03', '04-05-06'],
+                    'top_consecutive_quads' => ['01-02-03-04'],
+                ]);
+
                 $mock->shouldReceive('getConsecutiveSequencesAnalysis')->andReturn([
                     'summary' => [],
                     'top_pairs_consecutive' => ['01-02' => 50, '03-04' => 40, '05-06' => 30],

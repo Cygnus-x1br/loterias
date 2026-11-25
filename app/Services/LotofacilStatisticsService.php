@@ -429,79 +429,76 @@ class LotofacilStatisticsService
     /**
      * Retorna a classificação de temperatura (quente, neutra, fria) de cada dezena (1 a 25)
      * pela frequência nos últimos $recentContests concursos (ver classifyTemperatures()).
+     * Com $beforeContest, considera apenas os concursos anteriores a ele.
      * A classificação é descritiva: não altera a chance de uma dezena sair.
      *
      * @param  int  $recentContests  Quantidade de concursos recentes para a análise de momento.
      * @return array<int, array{number: int, temperature: string, recent_count: int, total_count: int, delay: int}>
      */
-    public function getNumberTemperatureClassification(int $recentContests = 20): array
+    public function getNumberTemperatureClassification(int $recentContests = 20, ?int $beforeContest = null): array
     {
-        $cacheKey = 'number_temperature_classification_'.$recentContests;
+        $cacheKey = 'number_temperature_classification_'.$recentContests.($beforeContest !== null ? '_before_'.$beforeContest : '');
 
-        return $this->cache()->remember($cacheKey, now()->addMinutes(30), function () use ($recentContests) {
-            $latestContestNumber = HistoricalResult::max('contest_number') ?? 0;
-
-            // Frequência recente
-            $recentFrequencies = $this->getNumberFrequencies($recentContests)->toArray();
-
-            // Frequência global
-            $totalFrequencies = $this->getNumberFrequencies(null)->toArray();
-
-            // Calcular atraso (concursos desde o último sorteio de cada dezena)
-            $delays = [];
-            for ($i = 1; $i <= 25; $i++) {
-                $delays[$i] = 0;
+        return $this->cache()->remember($cacheKey, now()->addMinutes(30), function () use ($recentContests, $beforeContest) {
+            $query = HistoricalResult::query()->orderByDesc('contest_number');
+            if ($beforeContest !== null) {
+                $query->where('contest_number', '<', $beforeContest);
             }
 
-            if ($latestContestNumber > 0) {
-                $results = HistoricalResult::orderByDesc('contest_number')
-                    ->take(50)
-                    ->get(['contest_number', 'drawn_numbers']);
+            // Concursos do mais recente para o mais antigo (até $beforeContest, se informado)
+            $draws = $query->pluck('drawn_numbers')
+                ->map(fn ($numbers): array => is_array($numbers) ? $numbers : (json_decode((string) $numbers, true) ?? []))
+                ->all();
 
-                foreach (range(1, 25) as $num) {
-                    $found = false;
-                    foreach ($results as $index => $row) {
-                        $drawn = is_array($row->drawn_numbers) ? $row->drawn_numbers : json_decode($row->drawn_numbers, true);
-                        if (is_array($drawn) && in_array($num, $drawn, true)) {
-                            $delays[$num] = $index;
-                            $found = true;
-                            break;
-                        }
-                    }
-                    if (! $found) {
-                        $delays[$num] = count($results);
-                    }
+            return $this->temperatureClassificationFromDraws($draws, $recentContests);
+        });
+    }
+
+    /**
+     * Classificação de temperatura a partir de uma lista de sorteios (o mais recente primeiro).
+     *
+     * @param  array<int, array<int, int|string>>  $drawsMostRecentFirst
+     * @return array<int, array{number: int, temperature: string, recent_count: int, total_count: int, delay: int}>
+     */
+    public function temperatureClassificationFromDraws(array $drawsMostRecentFirst, int $recentContests = 20): array
+    {
+        $recentCounts = array_fill(1, 25, 0);
+        $totalCounts = array_fill(1, 25, 0);
+        $delays = array_fill(1, 25, min(count($drawsMostRecentFirst), 50));
+
+        foreach (array_values($drawsMostRecentFirst) as $index => $numbers) {
+            foreach ($numbers as $number) {
+                $number = (int) $number;
+                if ($number < 1 || $number > 25) {
+                    continue;
+                }
+
+                $totalCounts[$number]++;
+
+                if ($index < $recentContests) {
+                    $recentCounts[$number]++;
+                }
+
+                if ($index < 50) {
+                    $delays[$number] = min($delays[$number], $index);
                 }
             }
+        }
 
-            $scoredNumbers = [];
-            for ($num = 1; $num <= 25; $num++) {
-                $recent = $recentFrequencies[$num] ?? 0;
-                $total = $totalFrequencies[$num] ?? 0;
-                $delay = $delays[$num] ?? 0;
+        $temperatures = $this->classifyTemperatures($recentCounts, $delays);
 
-                $scoredNumbers[$num] = [
-                    'number' => $num,
-                    'recent_count' => $recent,
-                    'total_count' => $total,
-                    'delay' => $delay,
-                ];
-            }
+        $classification = [];
+        for ($num = 1; $num <= 25; $num++) {
+            $classification[$num] = [
+                'number' => $num,
+                'recent_count' => $recentCounts[$num],
+                'total_count' => $totalCounts[$num],
+                'delay' => $delays[$num],
+                'temperature' => $temperatures[$num],
+            ];
+        }
 
-            $temperatures = $this->classifyTemperatures(
-                array_column($scoredNumbers, 'recent_count', 'number'),
-                $delays
-            );
-
-            $classification = [];
-            for ($num = 1; $num <= 25; $num++) {
-                $classification[$num] = array_merge($scoredNumbers[$num], [
-                    'temperature' => $temperatures[$num],
-                ]);
-            }
-
-            return $classification;
-        });
+        return $classification;
     }
 
     /**
@@ -1063,6 +1060,65 @@ class LotofacilStatisticsService
             });
 
             return $formattedDelays;
+        });
+    }
+
+    /**
+     * Padrões históricos usados pelo score (dezenas, pares, trios e sequências mais frequentes).
+     *
+     * Com $beforeContest, considera apenas os concursos anteriores a ele, para que o score
+     * de um concurso passado não use informação de concursos que aconteceram depois.
+     * O cálculo parte da contagem da série inteira (em cache) e subtrai os concursos
+     * de $beforeContest em diante.
+     *
+     * @return array{
+     *     top_numbers: array<int, int>,
+     *     top_pairs: array<int, string>,
+     *     top_trios: array<int, string>,
+     *     top_consecutive_pairs: array<int, string>,
+     *     top_consecutive_trios: array<int, string>,
+     *     top_consecutive_quads: array<int, string>
+     * }
+     */
+    public function getScoringPatterns(?int $beforeContest = null): array
+    {
+        $cacheKey = 'scoring_patterns_'.($beforeContest ?? 'all');
+
+        return $this->cache()->remember($cacheKey, now()->addHours(6), function () use ($beforeContest): array {
+            $tracker = ScoringPatternTracker::fromArray($this->scoringPatternCounts());
+
+            if ($beforeContest !== null) {
+                HistoricalResult::query()
+                    ->where('contest_number', '>=', $beforeContest)
+                    ->pluck('drawn_numbers')
+                    ->each(function ($drawnNumbers) use ($tracker): void {
+                        $numbers = is_array($drawnNumbers) ? $drawnNumbers : (json_decode((string) $drawnNumbers, true) ?? []);
+                        $tracker->remove($numbers);
+                    });
+            }
+
+            return $tracker->snapshot();
+        });
+    }
+
+    /**
+     * Contagem de dezenas, pares, trios e quadras consecutivas de toda a série histórica.
+     *
+     * @return array{numbers: array<int, int>, pairs: array<int, int>, trios: array<int, int>, quads: array<int, int>, draws: int}
+     */
+    protected function scoringPatternCounts(): array
+    {
+        return $this->cache()->remember('scoring_pattern_counts', now()->addHours(6), function (): array {
+            $tracker = new ScoringPatternTracker;
+
+            HistoricalResult::query()
+                ->pluck('drawn_numbers')
+                ->each(function ($drawnNumbers) use ($tracker): void {
+                    $numbers = is_array($drawnNumbers) ? $drawnNumbers : (json_decode((string) $drawnNumbers, true) ?? []);
+                    $tracker->add($numbers);
+                });
+
+            return $tracker->toArray();
         });
     }
 

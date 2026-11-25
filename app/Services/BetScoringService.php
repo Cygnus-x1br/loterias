@@ -30,9 +30,17 @@ class BetScoringService
      * O score mede o quanto a combinação se parece com padrões frequentes da série histórica.
      * Ele não altera a probabilidade de acerto: todas as combinações são equiprováveis.
      * Os pontos dos critérios somam no máximo RAW_MAX_SCORE e são convertidos para a escala 0–1000.
+     *
+     * Com $contextContestNumber, todos os critérios históricos usam apenas concursos anteriores a ele.
+     * $patterns permite informar os padrões já calculados (ver LotofacilStatisticsService::getScoringPatterns()),
+     * como faz o recálculo em lote, que os acumula concurso a concurso.
+     *
+     * @param  array<string, array<int, int|string>>|null  $patterns
      */
-    public function calculateScore(array $numbers, ?int $contextContestNumber = null): array
+    public function calculateScore(array $numbers, ?int $contextContestNumber = null, ?array $patterns = null): array
     {
+        $patterns ??= $this->statisticsService->getScoringPatterns($contextContestNumber);
+
         $numbers = array_map('intval', $numbers);
         sort($numbers);
 
@@ -151,7 +159,7 @@ class BetScoringService
         $totalScore += $details['never_drawn']['points'];
 
         // 6. Dezenas Mais Sorteadas - Top 10 (Max 50)
-        $top10Numbers = $this->statisticsService->getMostDrawnNumbers(10)->keys()->toArray();
+        $top10Numbers = $patterns['top_numbers'];
         $top10Count = count(array_intersect($numbers, $top10Numbers));
         $details['top_10_numbers']['value'] = $top10Count;
         if ($top10Count >= 6 && $top10Count <= 8) {
@@ -162,7 +170,7 @@ class BetScoringService
         $totalScore += $details['top_10_numbers']['points'];
 
         // 7. Pares Mais Frequentes Top 10 (Max 40)
-        $top10Pairs = $this->statisticsService->getMostFrequentPairs(10)->keys()->toArray();
+        $top10Pairs = $patterns['top_pairs'];
         $pairsCount = 0;
         $count = count($numbers);
         for ($i = 0; $i < $count; $i++) {
@@ -182,7 +190,7 @@ class BetScoringService
         $totalScore += $details['top_pairs']['points'];
 
         // 8. Trios Mais Frequentes Top 10 (Max 30)
-        $top10Trios = $this->statisticsService->getMostFrequentTrios(10)->keys()->toArray();
+        $top10Trios = $patterns['top_trios'];
         $triosCount = 0;
         for ($i = 0; $i < $count; $i++) {
             for ($j = $i + 1; $j < $count; $j++) {
@@ -203,10 +211,9 @@ class BetScoringService
         $totalScore += $details['top_trios']['points'];
 
         // 9. Pares, 10. Trios, 11. Quadras Consecutivos (Top) (Max 30)
-        $consecutiveTop = $this->statisticsService->getConsecutiveSequencesAnalysis();
-        $topPairsCons = array_keys($consecutiveTop['top_pairs_consecutive'] ?? []);
-        $topTriosCons = array_keys($consecutiveTop['top_trios_consecutive'] ?? []);
-        $topQuadsCons = array_keys($consecutiveTop['top_quads_consecutive'] ?? []);
+        $topPairsCons = $patterns['top_consecutive_pairs'];
+        $topTriosCons = $patterns['top_consecutive_trios'];
+        $topQuadsCons = $patterns['top_consecutive_quads'];
 
         $myPairsCons = 0;
         $myTriosCons = 0;
@@ -286,7 +293,7 @@ class BetScoringService
         $totalScore += $details['delay']['points'];
 
         // Contagem de Quentes, Neutras e Frias
-        $temperatures = $this->statisticsService->getNumberTemperatureClassification(20);
+        $temperatures = $patterns['temperatures'] ?? $this->statisticsService->getNumberTemperatureClassification(20, $contextContestNumber);
         $hotCount = 0;
         $neutralCount = 0;
         $coldCount = 0;
