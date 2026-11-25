@@ -296,7 +296,44 @@ class ClosingRepeatAndReferencesTest extends TestCase
         }
         $this->assertStringNotContainsString('data-delayed-number="1"', $html);
         $this->assertStringContainsString('Dezenas com atraso', $html);
-        $this->assertStringContainsString('uma dezena atrasada não tem mais chance de sair', $html);
+        $this->assertStringContainsString('não tem mais chance de sair', $html);
+    }
+
+    public function test_delayed_numbers_pending_to_close_the_cycle_get_a_border(): void
+    {
+        // Ciclo 1 fecha no concurso 2; no ciclo 2 (concursos 3 e 4) saíram 1 a 10 e 16 a 25: faltam 11 a 15
+        $this->createContest(1, range(1, 15));
+        $this->createContest(2, range(11, 25));
+        $this->createContest(3, array_merge(range(1, 5), range(16, 25)));
+        $this->createContest(4, array_merge(range(1, 10), range(16, 20)));
+
+        $html = Volt::actingAs($this->user)->test('pages.closings.create')->html();
+
+        // Atrasadas: 11 a 15 (2 sem sair) e 21 a 25 (1 sem sair); só 11 a 15 faltam no ciclo
+        $this->assertSame(10, substr_count($html, 'data-delayed-number='));
+        $this->assertSame(5, substr_count($html, 'data-cycle-pending="true"'));
+
+        foreach (range(11, 15) as $number) {
+            $this->assertMatchesRegularExpression('/data-delayed-number="'.$number.'"\s+data-cycle-pending="true"/', $html);
+        }
+        foreach (range(21, 25) as $number) {
+            $this->assertDoesNotMatchRegularExpression('/data-delayed-number="'.$number.'"\s+data-cycle-pending="true"/', $html);
+        }
+
+        $this->assertStringContainsString('ainda não saiu no ciclo atual', $html);
+        $this->assertStringContainsString('5 dezenas faltam para fechá-lo', $html);
+    }
+
+    public function test_no_cycle_border_when_the_cycle_is_complete(): void
+    {
+        $this->createContest(1, range(1, 15));
+        $this->createContest(2, range(11, 25));
+
+        $html = Volt::actingAs($this->user)->test('pages.closings.create')->html();
+
+        $this->assertStringContainsString('data-delayed-number="1"', $html);
+        $this->assertStringNotContainsString('data-cycle-pending', $html);
+        $this->assertStringNotContainsString('ainda não saiu no ciclo atual', $html);
     }
 
     public function test_new_closing_page_without_history_has_no_marks_or_delay_panel(): void

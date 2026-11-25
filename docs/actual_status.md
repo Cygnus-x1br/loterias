@@ -9,7 +9,7 @@ Este documento compara o que está implementado no código com a especificação
 ## 1. Visão geral
 
 - **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local sem Docker; MariaDB no Docker e em produção.
-- **Testes:** 198 testes PHPUnit, todos passando.
+- **Testes:** 200 testes PHPUnit, todos passando.
 - **Histórico de desenvolvimento:** 49 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
 
 ### 1.1 Modelo de dados
@@ -59,6 +59,7 @@ Este documento compara o que está implementado no código com a especificação
 
 - Os quadros das dezenas mostram uma barra verde na parte inferior nas dezenas sorteadas no último concurso, além do indicador de temperatura.
 - O painel "Referência para planejamento" traz as estatísticas do último concurso e as dezenas com atraso (concursos sem sair, do maior para o menor), sinalizadas como referência descritiva.
+- Entre as dezenas atrasadas, as que ainda faltam para fechar o ciclo atual ganham uma borda índigo (com legenda e tooltip); sem borda quando o ciclo está completo.
 - O concurso alvo vem preenchido com o próximo concurso e alimenta a comparação de grupos da sugestão estatística.
 
 ---

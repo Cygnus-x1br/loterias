@@ -757,6 +757,8 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             'lastContestStats' => $lastContestStats,
             'lastDrawnNumbers' => $lastContestStats['drawn_numbers'] ?? [],
             'delayedNumbers' => $delayedNumbers,
+            // Dezenas que ainda não saíram no ciclo atual (faltam para fechá-lo)
+            'cycleMissingNumbers' => $service->getDecadesCycleAnalysis()['missing_numbers'] ?? [],
             'friends' => Auth::user()->friends(),
         ];
     }
@@ -911,19 +913,32 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                                             $item['delay'] === 2 => 'bg-amber-100 text-amber-700 border-amber-200',
                                             default => 'bg-slate-100 text-slate-600 border-slate-200',
                                         };
+                                        $pendingCycle = in_array($item['number'], $cycleMissingNumbers, true);
                                     @endphp
                                     <span
                                         data-delayed-number="{{ $item['number'] }}"
-                                        class="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-bold {{ $delayColor }}"
-                                        title="Dezena {{ sprintf('%02d', $item['number']) }}: {{ $item['delay'] }} {{ $item['delay'] === 1 ? 'concurso' : 'concursos' }} sem sair"
+                                        @if ($pendingCycle) data-cycle-pending="true" @endif
+                                        @class([
+                                            'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-bold',
+                                            $delayColor,
+                                            'ring-2 ring-indigo-500 ring-offset-1' => $pendingCycle,
+                                        ])
+                                        title="Dezena {{ sprintf('%02d', $item['number']) }}: {{ $item['delay'] }} {{ $item['delay'] === 1 ? 'concurso' : 'concursos' }} sem sair{{ $pendingCycle ? ' · falta para fechar o ciclo' : '' }}"
                                     >
                                         {{ str_pad($item['number'], 2, '0', STR_PAD_LEFT) }}
                                         <span class="font-medium opacity-70">{{ $item['delay'] }}</span>
                                     </span>
                                 @endforeach
                             </div>
+                            @if (! empty($cycleMissingNumbers))
+                                <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+                                    <span class="inline-block h-3.5 w-5 rounded-md bg-white ring-2 ring-indigo-500 ring-offset-1"></span>
+                                    Borda: dezena que ainda não saiu no ciclo atual
+                                    ({{ count($cycleMissingNumbers) }} {{ count($cycleMissingNumbers) === 1 ? 'dezena falta' : 'dezenas faltam' }} para fechá-lo)
+                                </div>
+                            @endif
                             <p class="mt-1.5 text-[10px] leading-4 text-slate-400">
-                                Referência descritiva: o sorteio não tem memória e uma dezena atrasada não tem mais chance de sair.
+                                Referência descritiva: o sorteio não tem memória e uma dezena atrasada, ou que falta para fechar o ciclo, não tem mais chance de sair.
                             </p>
                         </div>
                     @endif
