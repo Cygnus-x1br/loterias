@@ -9,8 +9,8 @@ Este documento compara o que está implementado no código com a especificação
 ## 1. Visão geral
 
 - **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local sem Docker; MariaDB no Docker e em produção.
-- **Testes:** 177 testes PHPUnit, todos passando.
-- **Histórico de desenvolvimento:** 47 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
+- **Testes:** 185 testes PHPUnit, todos passando.
+- **Histórico de desenvolvimento:** 48 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
 
 ### 1.1 Modelo de dados
 
@@ -18,7 +18,7 @@ Este documento compara o que está implementado no código com a especificação
 | --- | --- |
 | `users` / `User` | Usuários, com `share_code` para conexões |
 | `bets` / `Bet` | Apostas (dezenas em JSON), avulsas ou ligadas a um fechamento via `closing_id`; status, concurso, acertos e observação (`notes`) |
-| `closings` / `Closing` | Fechamentos: método, grupo-base, parâmetros (JSON), `planned_bets`, status, concurso, data do sorteio e avisos da última geração (`generation_warnings`) |
+| `closings` / `Closing` | Fechamentos: método, grupo-base, parâmetros (JSON), `planned_bets`, status, concurso alvo (`target_contest_number`), concurso apostado (`contest_number`), data do sorteio e avisos da última geração (`generation_warnings`) |
 | `historical_results` / `HistoricalResult` | Série histórica: dezenas, hash da combinação, ganhadores e rateios, score e número do ciclo |
 | `lotofacil_settings` / `LotofacilSetting` | Preços por tamanho de aposta e prêmios fixos, por usuário |
 | `consolidated_audits` / `ConsolidatedAudit` | Resultados das auditorias de cobertura processadas em fila |
@@ -32,6 +32,7 @@ Este documento compara o que está implementado no código com a especificação
 
 `draft` → `processing` → `completed` → `placed` (concurso e data informados) → `checked` (conferido contra o resultado). Em caso de erro, `failed`.
 
+- Todo fechamento tem um **concurso alvo**, preenchido por padrão com o próximo concurso. Ele é diferente do concurso apostado (`contest_number`), que só é gravado ao marcar "Apostado" e é o que o financeiro considera.
 - Fechamentos `completed` podem ser editados. Salvar apaga as apostas, limpa os avisos e volta o fechamento para `draft`.
 - Ações disponíveis: refazer apostas, excluir apostas individualmente ou em lote (com renumeração), completar apostas faltantes até `planned_bets` e alertar dezenas do grupo-base sem cobertura.
 - Apostas e fechamentos `placed`/`checked` ficam bloqueados para edição e exclusão.
@@ -92,12 +93,14 @@ Legenda: ✅ implementado · 🟡 parcial · ❌ não implementado
 | 29 | Classificação Exato / Heurístico / Simulado | 🟡 | A chance de premiação é rotulada como exata; ciclo, atraso e temperatura são rotulados como heurísticos/descritivos; ainda não é sistemático em todas as telas |
 | 30 | Regras de comunicação | 🟡 | Score e temperatura trazem aviso de que não alteram a probabilidade; o otimizador e os textos antigos ainda falam em "jogos mais fortes" |
 
-**Requisito transversal 3.11 (determinismo por semente aleatória):** ❌ Nenhum gerador, simulador ou otimizador aceita semente, então os resultados não são reproduzíveis.
+**Requisito transversal 3.11 (determinismo por semente aleatória):** 🟡 A sugestão do grupo-base é determinística e aceita semente; os geradores de apostas, o otimizador e as simulações ainda não.
 
 ### 2.1 Geração equilibrada (método mais usado)
 
 1. **Grupo-base (opcional):** `BaseNumbersSuggestionService` combina repetidas do último concurso com dezenas novas. O tamanho pedido é sempre respeitado: as repetições são ajustadas para a faixa possível (as novas só podem vir das 10 dezenas fora do último concurso) e o relatório informa o ajuste. Paridade e moldura são reequilibradas a cada dezena escolhida. A temperatura **não** é usada na montagem da base.
    - **Dupla avaliação:** a mesma pontuação heurística (frequência ×0,1 + atraso ×2 + bônus do ciclo) define as 10 dezenas mais indicadas e as 5 menos indicadas. As menos indicadas ficam fora do grupo sempre que o tamanho e as repetições pedidas permitem; o relatório mostra quais ficaram fora e quais precisaram entrar.
+   - **Resultado determinístico:** sem ruído nem sorteios internos (empates pela menor dezena), os mesmos dados e parâmetros geram sempre o mesmo grupo. O botão "Outra opção" usa uma semente reproduzível para variar.
+   - **Vários fechamentos para o mesmo concurso:** a sugestão considera os fechamentos do usuário com o mesmo concurso alvo (ou já apostados nele). As dezenas que ficaram fora deles têm prioridade, inclusive sobre a regra das menos indicadas, e o grupo nunca repete um grupo existente (quando o tamanho permite). O relatório informa quantos fechamentos existiam e quais dezenas foram priorizadas.
 2. **Cotas de repetição:** distribuídas pela probabilidade hipergeométrica de cada quantidade de repetidas (ex.: 8/9/10 repetidas → 30/41/29 de 100 apostas).
 3. **Filtros:** paridade, soma, primos, Fibonacci, repetidas, score e temperatura. Quando não há combinações suficientes, a tolerância cresce até ±3 e, em último caso, a aposta é gerada sem filtros. **Toda aposta aceita fora da faixa recebe uma observação** e o fechamento mostra um resumo.
 4. **Distribuir apostas (`spread_bets`):** compara até 25 combinações válidas por aposta e escolhe a de menor sobreposição com as já geradas. Ligado por padrão em fechamentos novos.
@@ -142,7 +145,7 @@ Verificações feitas contra a série real (3.776 concursos) e por enumeração 
 | Score | Escala 0–1000 real (máximo bruto de 900 pontos), faixa da soma 175–215, sequências consecutivas sem depender de cache, ciclo e atraso rotulados como heurísticos; o score de cada concurso usa apenas concursos anteriores a ele (`ScoringPatternTracker`) |
 | Temperatura | Regra única (frequência no período, atraso só desempata) em gerador, score e comparativo |
 | Cache | `StatisticsCache` versionado; seeder invalida o cache |
-| Grupo-base | Dupla avaliação (mais × menos indicadas) e registro das indicações para acompanhamento |
+| Grupo-base | Dupla avaliação (mais × menos indicadas) e registro das indicações para acompanhamento; sugestão determinística com semente opcional; grupos diferentes para vários fechamentos do mesmo concurso |
 
 ---
 
@@ -179,7 +182,7 @@ Em ordem de prioridade:
    - [ ] Restringir o CRUD de sorteios a administradores.
    - [ ] Criar Policies para `Closing`, `Bet` e `HistoricalResult`.
 2. **Reprodutibilidade e transparência** (Itens 3.11, 26, 29 e 30)
-   - [ ] Aceitar e persistir semente aleatória em geradores, otimizador e simulações.
+   - [ ] Aceitar e persistir semente aleatória nos geradores de apostas, no otimizador e nas simulações (a sugestão do grupo-base já aceita).
    - [ ] Rotular sistematicamente cada resultado como Exato, Ótimo comprovado, Viável, Heurístico ou Simulado.
    - [ ] Adicionar intervalo de confiança de 95% ao Monte Carlo e deixar de chamar amostragem de "garantia confirmada".
    - [ ] Criar um relatório de transparência do fechamento (método, parâmetros, semente, cobertura, garantias e limitações).

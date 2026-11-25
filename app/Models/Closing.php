@@ -28,6 +28,7 @@ class Closing extends Model
         'generation_warnings',
         'status',
         'contest_number',
+        'target_contest_number',
         'draw_date',
         'notes',
     ];
@@ -46,6 +47,7 @@ class Closing extends Model
             'parameters' => 'array',
             'generation_warnings' => 'array',
             'contest_number' => 'integer',
+            'target_contest_number' => 'integer',
             'draw_date' => 'date',
         ];
     }

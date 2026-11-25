@@ -19,6 +19,10 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
     public ?array $statisticalReport = null;
 
+    public ?int $target_contest_number = null;
+
+    public ?int $suggestionSeed = null;
+
     public int $bet_size = 15;
 
     public int $planned_bets = 10;
@@ -29,6 +33,8 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
     public function mount(): void
     {
+        $this->target_contest_number = app(\App\Services\BaseNumbersSuggestionService::class)->nextContestNumber();
+
         $numbersQuery = request()->query('numbers');
         if ($numbersQuery && is_string($numbersQuery)) {
             $parsedNumbers = array_filter(array_map('intval', explode(',', $numbersQuery)), fn ($n) => $n >= 1 && $n <= 25);
@@ -60,10 +66,20 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
         }
     }
 
-    public function generateStatisticalBaseNumbers(int $totalBase = 18, int $repetitions = 9): void
+    public function generateStatisticalBaseNumbers(int $totalBase = 18, int $repetitions = 9, bool $vary = false): void
     {
+        $service = app(\App\Services\BaseNumbersSuggestionService::class);
+
+        // Sem variação, a sugestão é sempre a mesma; "Outra opção" avança a semente
+        $this->suggestionSeed = $vary ? ($this->suggestionSeed ?? 0) + 1 : null;
+
         try {
-            $suggestion = app(\App\Services\BaseNumbersSuggestionService::class)->suggest($totalBase, $repetitions);
+            $suggestion = $service->suggest(
+                $totalBase,
+                $repetitions,
+                $this->suggestionSeed,
+                $service->previousBasesFor((int) Auth::id(), $this->target_contest_number, null)
+            );
         } catch (\InvalidArgumentException $exception) {
             $this->addError('base_numbers', $exception->getMessage());
 
@@ -126,6 +142,12 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                 'required',
                 'string',
                 'in:integral,reduced,wheel,random,balanced',
+            ],
+
+            'target_contest_number' => [
+                'nullable',
+                'integer',
+                'min:1',
             ],
 
             'base_numbers' => [
@@ -685,6 +707,7 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
             $closing = Closing::create([
                 'user_id' => Auth::id(),
                 'name' => $this->name,
+                'target_contest_number' => $this->target_contest_number,
                 'method' => $this->method,
                 'base_numbers' => $this->base_numbers,
                 'bet_size' => $this->bet_size,
@@ -1040,11 +1063,14 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
 
                             <button
                                 type="button"
-                                @click="$wire.generateStatisticalBaseNumbers(Number(totalBase), Number(repetitions)); open = false;"
+                                @click="$wire.generateStatisticalBaseNumbers(Number(totalBase), Number(repetitions), false); open = false;"
                                 class="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700"
                             >
                                 Aplicar Sugestão
                             </button>
+                            <p class="text-[11px] leading-4 text-slate-500">
+                                A sugestão é sempre a mesma para os mesmos dados. Depois de aplicar, use "Outra opção" no relatório para variar.
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -1096,6 +1122,38 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                     <p class="text-sm text-slate-600 mb-4">
                         A seleção das <strong>{{ $statisticalReport['total_base'] }} dezenas</strong> foi baseada nos seguintes critérios estatísticos:
                     </p>
+                    @if (! empty($statisticalReport['criteria']['previous']))
+                        <p class="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-800">
+                            {{ $statisticalReport['criteria']['previous'] }}
+                            @if (! empty($statisticalReport['prioritized_numbers']))
+                                Dezenas priorizadas:
+                                {{ collect($statisticalReport['prioritized_numbers'])->map(fn ($n) => str_pad($n, 2, '0', STR_PAD_LEFT))->implode(', ') }}.
+                            @endif
+                        </p>
+                    @endif
+
+                    <div class="mb-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <span>
+                            {{ ($statisticalReport['seed'] ?? null) === null ? 'Sugestão padrão (sem variação).' : 'Opção '.($statisticalReport['seed'] + 1).' (semente '.$statisticalReport['seed'].').' }}
+                        </span>
+                        <button
+                            type="button"
+                            wire:click="generateStatisticalBaseNumbers({{ (int) $statisticalReport['requested_total_base'] }}, {{ (int) $statisticalReport['requested_repetitions'] }}, true)"
+                            class="inline-flex items-center rounded-lg border border-emerald-300 bg-white px-2.5 py-1 font-semibold text-emerald-700 hover:bg-emerald-50"
+                        >
+                            Outra opção
+                        </button>
+                        @if (($statisticalReport['seed'] ?? null) !== null)
+                            <button
+                                type="button"
+                                wire:click="generateStatisticalBaseNumbers({{ (int) $statisticalReport['requested_total_base'] }}, {{ (int) $statisticalReport['requested_repetitions'] }}, false)"
+                                class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-600 hover:bg-slate-50"
+                            >
+                                Voltar à sugestão padrão
+                            </button>
+                        @endif
+                    </div>
+
                     @if(! empty($statisticalReport['adjustment']))
                         <p class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
                             {{ $statisticalReport['adjustment'] }}
@@ -1246,6 +1304,26 @@ new #[Layout('layouts.app', ['title' => 'Novo fechamento'])] class extends Compo
                         <p class="mt-2 text-sm font-medium text-rose-600">
                             {{ $message }}
                         </p>
+                    @enderror
+                </div>
+
+                <div>
+                    <label for="target_contest_number" class="block text-sm font-semibold text-slate-700">
+                        Concurso alvo
+                    </label>
+                    <input
+                        id="target_contest_number"
+                        type="number"
+                        min="1"
+                        wire:model.live.debounce.500ms="target_contest_number"
+                        placeholder="Ex: 3777"
+                        class="mt-2 block w-full rounded-xl border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    >
+                    <p class="mt-1 text-xs text-slate-500">
+                        Concurso para o qual este fechamento está sendo montado. Se já houver outro fechamento seu para o mesmo concurso, a sugestão estatística monta um grupo diferente, priorizando as dezenas que ficaram de fora.
+                    </p>
+                    @error('target_contest_number')
+                        <p class="mt-2 text-sm font-medium text-rose-600">{{ $message }}</p>
                     @enderror
                 </div>
 

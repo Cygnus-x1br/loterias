@@ -2,7 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\Closing;
 use InvalidArgumentException;
+use Random\Engine\Mt19937;
+use Random\Randomizer;
 
 class BaseNumbersSuggestionService
 {
@@ -35,6 +38,17 @@ class BaseNumbersSuggestionService
      */
     protected const LEAST_INDICATED_PENALTY = 1000;
 
+    /**
+     * Bônus, por fechamento anterior do mesmo concurso, para a dezena que ficou fora dele.
+     * É maior que a penalidade das menos indicadas: cobrir o que ficou de fora vem primeiro.
+     */
+    protected const PREVIOUS_EXCLUSION_BONUS = 2000;
+
+    /**
+     * Variação máxima (em pontos) aplicada a cada dezena quando uma semente é informada.
+     */
+    protected const SEED_VARIATION = 10;
+
     protected const FRAME_BONUS = 12;
 
     public function __construct(
@@ -61,11 +75,50 @@ class BaseNumbersSuggestionService
     }
 
     /**
+     * Próximo concurso a ser sorteado (último cadastrado + 1), usado como concurso alvo padrão.
+     */
+    public function nextContestNumber(): ?int
+    {
+        $lastContest = $this->statisticsService->getLastContest();
+
+        return $lastContest ? (int) $lastContest->contest_number + 1 : null;
+    }
+
+    /**
+     * Grupos-base dos fechamentos do usuário para o mesmo concurso (alvo ou já apostado).
+     *
+     * @return array<int, array<int, int>>
+     */
+    public function previousBasesFor(int $userId, ?int $contestNumber, ?int $ignoreClosingId = null): array
+    {
+        if ($contestNumber === null) {
+            return [];
+        }
+
+        return Closing::query()
+            ->where('user_id', $userId)
+            ->where(fn ($query) => $query->where('target_contest_number', $contestNumber)->orWhere('contest_number', $contestNumber))
+            ->when($ignoreClosingId !== null, fn ($query) => $query->whereKeyNot($ignoreClosingId))
+            ->orderBy('id')
+            ->pluck('base_numbers')
+            ->filter(fn ($base): bool => is_array($base) && $base !== [])
+            ->values()
+            ->all();
+    }
+
+    /**
      * Sugere um grupo-base combinando dezenas repetidas do último concurso com dezenas novas.
      *
      * Critérios heurísticos (não aumentam a probabilidade de acerto): frequência histórica,
      * atraso atual, dezenas faltantes do ciclo e equilíbrio de paridade e moldura/centro.
      *
+     * O resultado é determinístico: os mesmos dados, parâmetros e semente geram sempre o mesmo grupo.
+     * Sem semente não há variação; com semente, cada dezena recebe uma variação reproduzível.
+     *
+     * Com $previousBases (grupos de outros fechamentos para o mesmo concurso), as dezenas que
+     * ficaram fora deles têm prioridade e o grupo sugerido nunca repete um deles.
+     *
+     * @param  array<int, array<int, int|string>>  $previousBases
      * @return array{
      *     numbers: array<int, int>,
      *     report: array{
@@ -83,13 +136,17 @@ class BaseNumbersSuggestionService
      *         least_indicated: array<int, int>,
      *         least_avoided: array<int, int>,
      *         least_included: array<int, int>,
-     *         criteria: array{repeated: string, new: string, cross: string}
+     *         seed: int|null,
+     *         previous_closings: int,
+     *         prioritized_numbers: array<int, int>,
+     *         distinct_from_previous: bool,
+     *         criteria: array{repeated: string, new: string, cross: string, previous: string|null}
      *     }
      * }
      *
      * @throws InvalidArgumentException
      */
-    public function suggest(int $totalBase, int $repetitions): array
+    public function suggest(int $totalBase, int $repetitions, ?int $seed = null, array $previousBases = []): array
     {
         if ($totalBase < 15 || $totalBase > 25) {
             throw new InvalidArgumentException('O grupo-base deve ter entre 15 e 25 dezenas.');
@@ -128,20 +185,38 @@ class BaseNumbersSuggestionService
         $indications = $this->indicationGroups($this->heuristicScores($frequencies, $delayAnalysis->all(), $cycleAnalysis));
         $leastIndicated = $indications['least_indicated'];
 
-        $selectedRepeated = $this->selectRepeatedNumbers($lastDrawn, $effectiveRepetitions, $frequencies, $leastIndicated, $indications['scores']);
+        $previousBases = $this->normalizeBases($previousBases);
+        $selectionScores = $this->selectionScores($indications['scores'], $leastIndicated, $previousBases, $seed);
+
+        $selectedRepeated = $this->selectRepeatedNumbers($lastDrawn, $effectiveRepetitions, $selectionScores);
 
         $candidates = array_values(array_diff(range(1, 25), $lastDrawn));
         $selectedNew = $this->selectNewNumbers(
             $candidates,
             $totalBase - count($selectedRepeated),
             $selectedRepeated,
-            $this->candidateScores($candidates, $indications['scores'], $leastIndicated)
+            array_intersect_key($selectionScores, array_flip($candidates))
+        );
+
+        [$selectedRepeated, $selectedNew, $distinct] = $this->ensureDistinct(
+            $selectedRepeated,
+            $selectedNew,
+            $lastDrawn,
+            $candidates,
+            $selectionScores,
+            $previousBases
         );
 
         $numbers = array_merge($selectedRepeated, $selectedNew);
         sort($numbers);
         sort($selectedRepeated);
         sort($selectedNew);
+
+        $excludedBefore = $previousBases === []
+            ? []
+            : array_values(array_unique(array_merge(...array_map(fn (array $base): array => array_diff(range(1, 25), $base), $previousBases))));
+        $prioritized = array_values(array_intersect($numbers, $excludedBefore));
+        sort($prioritized);
 
         $leastIncluded = array_values(array_intersect($leastIndicated, $numbers));
         $leastAvoided = array_values(array_diff($leastIndicated, $numbers));
@@ -163,7 +238,12 @@ class BaseNumbersSuggestionService
                 'least_indicated' => $leastIndicated,
                 'least_avoided' => $leastAvoided,
                 'least_included' => $leastIncluded,
+                'seed' => $seed,
+                'previous_closings' => count($previousBases),
+                'prioritized_numbers' => $prioritized,
+                'distinct_from_previous' => $distinct,
                 'criteria' => [
+                    'previous' => $this->previousCriteria(count($previousBases), $prioritized, $distinct),
                     'cross' => $leastIncluded === []
                         ? sprintf('As %d dezenas menos indicadas ficaram fora do grupo.', count($leastIndicated))
                         : sprintf(
@@ -172,7 +252,7 @@ class BaseNumbersSuggestionService
                             count($leastIndicated),
                             count($leastIncluded)
                         ),
-                    'repeated' => 'Foram selecionadas '.count($selectedRepeated).' dezenas do concurso anterior priorizando a maior frequência geral histórica.',
+                    'repeated' => 'Foram selecionadas '.count($selectedRepeated).' dezenas do concurso anterior priorizando a maior frequência geral histórica (empates pela menor dezena).',
                     'new' => 'Foram selecionadas '.count($selectedNew).' dezenas baseando-se na frequência geral, no maior atraso atual e na projeção de fechamento do ciclo (peso maior para as '.count($missingNumbers).' dezenas faltantes), equilibradas a cada escolha com a proporção de pares/ímpares e moldura/centro do grupo.',
                 ],
             ],
@@ -180,40 +260,37 @@ class BaseNumbersSuggestionService
     }
 
     /**
-     * Escolhe as repetidas entre as dezenas de maior frequência histórica do último concurso,
-     * deixando as "menos indicadas" por último.
+     * Escolhe as repetidas do último concurso pela pontuação de seleção (maior primeiro,
+     * empate pela menor dezena). Entre as dezenas do último concurso o atraso é zero, então a
+     * ordem segue a frequência histórica; menos indicadas ficam por último e dezenas que ficaram
+     * fora de fechamentos anteriores do mesmo concurso vêm primeiro.
      *
      * @param  array<int, int>  $lastDrawn
-     * @param  array<int, int>  $frequencies
-     * @param  array<int, int>  $leastIndicated
-     * @param  array<int, float>  $scores
+     * @param  array<int, float>  $selectionScores
      * @return array<int, int>
      */
-    protected function selectRepeatedNumbers(array $lastDrawn, int $repetitions, array $frequencies, array $leastIndicated = [], array $scores = []): array
+    protected function selectRepeatedNumbers(array $lastDrawn, int $repetitions, array $selectionScores): array
     {
         if ($repetitions === 0 || $lastDrawn === []) {
             return [];
         }
 
-        $preferred = array_values(array_diff($lastDrawn, $leastIndicated));
+        return array_slice($this->rankByScore($lastDrawn, $selectionScores), 0, $repetitions);
+    }
 
-        if ($repetitions > count($preferred)) {
-            // Não há repetidas suficientes fora das menos indicadas: completa com as de maior pontuação entre elas
-            $fallback = array_values(array_intersect($lastDrawn, $leastIndicated));
-            usort($fallback, fn (int $a, int $b): int => ($scores[$b] ?? 0) <=> ($scores[$a] ?? 0));
+    /**
+     * Ordena dezenas pela pontuação (maior primeiro), com empate pela menor dezena.
+     *
+     * @param  array<int, int>  $numbers
+     * @param  array<int, float>  $scores
+     * @return array<int, int>
+     */
+    protected function rankByScore(array $numbers, array $scores): array
+    {
+        $numbers = array_values($numbers);
+        usort($numbers, fn (int $a, int $b): int => [($scores[$b] ?? 0), $a] <=> [($scores[$a] ?? 0), $b]);
 
-            return array_merge($preferred, array_slice($fallback, 0, $repetitions - count($preferred)));
-        }
-
-        // Embaralha antes da ordenação estável para desempatar frequências iguais ao acaso
-        $ranked = $preferred;
-        shuffle($ranked);
-        usort($ranked, fn (int $a, int $b): int => ($frequencies[$b] ?? 0) <=> ($frequencies[$a] ?? 0));
-
-        $pool = array_slice($ranked, 0, min(count($ranked), $repetitions + 4));
-        shuffle($pool);
-
-        return array_slice($pool, 0, $repetitions);
+        return $numbers;
     }
 
     /**
@@ -279,23 +356,110 @@ class BaseNumbersSuggestionService
     }
 
     /**
-     * Pontuação usada na escolha das dezenas novas: a heurística, um ruído para variar as sugestões
-     * e uma penalidade que deixa as "menos indicadas" por último.
+     * Pontuação usada para escolher as dezenas do grupo:
+     * heurística + variação da semente (se houver) + prioridade para o que ficou fora de
+     * fechamentos anteriores − penalidade das menos indicadas.
      *
-     * @param  array<int, int>  $candidates
      * @param  array<int, float>  $scores
      * @param  array<int, int>  $leastIndicated
+     * @param  array<int, array<int, int>>  $previousBases
      * @return array<int, float>
      */
-    protected function candidateScores(array $candidates, array $scores, array $leastIndicated): array
+    protected function selectionScores(array $scores, array $leastIndicated, array $previousBases, ?int $seed): array
     {
-        $candidateScores = [];
-        foreach ($candidates as $number) {
-            $penalty = in_array($number, $leastIndicated, true) ? self::LEAST_INDICATED_PENALTY : 0;
-            $candidateScores[$number] = ($scores[$number] ?? 0) + mt_rand(0, 5) - $penalty;
+        $randomizer = $seed !== null ? new Randomizer(new Mt19937($seed)) : null;
+
+        $selectionScores = [];
+        foreach (range(1, 25) as $number) {
+            $timesExcluded = count(array_filter($previousBases, fn (array $base): bool => ! in_array($number, $base, true)));
+
+            $selectionScores[$number] = ($scores[$number] ?? 0)
+                + ($randomizer?->getFloat(0, self::SEED_VARIATION) ?? 0)
+                + $timesExcluded * self::PREVIOUS_EXCLUSION_BONUS
+                - (in_array($number, $leastIndicated, true) ? self::LEAST_INDICATED_PENALTY : 0);
         }
 
-        return $candidateScores;
+        return $selectionScores;
+    }
+
+    /**
+     * Garante que o grupo não seja igual a nenhum grupo anterior do mesmo concurso.
+     * Se for, troca a dezena de menor pontuação do grupo pela de maior pontuação fora dele,
+     * no mesmo tipo (nova ou repetida), para manter a quantidade de repetidas pedida.
+     *
+     * @param  array<int, int>  $repeated
+     * @param  array<int, int>  $new
+     * @param  array<int, int>  $lastDrawn
+     * @param  array<int, int>  $candidates
+     * @param  array<int, float>  $selectionScores
+     * @param  array<int, array<int, int>>  $previousBases
+     * @return array{0: array<int, int>, 1: array<int, int>, 2: bool}
+     */
+    protected function ensureDistinct(array $repeated, array $new, array $lastDrawn, array $candidates, array $selectionScores, array $previousBases): array
+    {
+        $isPrevious = function (array $repeatedGroup, array $newGroup) use ($previousBases): bool {
+            $group = array_merge($repeatedGroup, $newGroup);
+            sort($group);
+
+            return in_array($group, $previousBases, true);
+        };
+
+        if (! $isPrevious($repeated, $new)) {
+            return [$repeated, $new, true];
+        }
+
+        foreach ([['new', $candidates], ['repeated', $lastDrawn]] as [$type, $pool]) {
+            $current = $type === 'new' ? $new : $repeated;
+            $outside = $this->rankByScore(array_diff($pool, $current), $selectionScores);
+            $inside = array_reverse($this->rankByScore($current, $selectionScores));
+
+            foreach ($inside as $out) {
+                foreach ($outside as $in) {
+                    $swapped = array_values(array_merge(array_diff($current, [$out]), [$in]));
+                    [$candidateRepeated, $candidateNew] = $type === 'new' ? [$repeated, $swapped] : [$swapped, $new];
+
+                    if (! $isPrevious($candidateRepeated, $candidateNew)) {
+                        return [$candidateRepeated, $candidateNew, true];
+                    }
+                }
+            }
+        }
+
+        return [$repeated, $new, false];
+    }
+
+    /**
+     * @param  array<int, array<int, int|string>>  $bases
+     * @return array<int, array<int, int>>
+     */
+    protected function normalizeBases(array $bases): array
+    {
+        return array_values(array_map(function (array $base): array {
+            $numbers = array_values(array_unique(array_map('intval', $base)));
+            sort($numbers);
+
+            return $numbers;
+        }, array_filter($bases, fn ($base): bool => is_array($base) && $base !== [])));
+    }
+
+    /**
+     * @param  array<int, int>  $prioritized
+     */
+    protected function previousCriteria(int $previousClosings, array $prioritized, bool $distinct): ?string
+    {
+        if ($previousClosings === 0) {
+            return null;
+        }
+
+        $text = sprintf(
+            'Já existe(m) %d fechamento(s) para este concurso: %d dezena(s) que ficaram fora dele(s) entraram com prioridade.',
+            $previousClosings,
+            count($prioritized)
+        );
+
+        return $distinct
+            ? $text.' O grupo é diferente de todos os anteriores.'
+            : $text.' Não foi possível formar um grupo diferente com este tamanho e estas repetições.';
     }
 
     /**

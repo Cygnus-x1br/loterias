@@ -88,7 +88,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         }
 
         $this->closing = $closing;
-        $this->placedContestNumber = $closing->contest_number;
+        $this->placedContestNumber = $closing->contest_number ?? $closing->target_contest_number;
         $this->placedDrawDate = $closing->draw_date ? $closing->draw_date->format('Y-m-d') : null;
 
         $lastContestData = app(LotofacilStatisticsService::class)->getLastContestWithSum();
@@ -113,7 +113,9 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
 
     public function openMarkAsPlacedModal(): void
     {
-        $this->placedContestNumber = $this->closing->contest_number ?? ($this->lastContestNumber ? $this->lastContestNumber + 1 : null);
+        $this->placedContestNumber = $this->closing->contest_number
+            ?? $this->closing->target_contest_number
+            ?? ($this->lastContestNumber ? $this->lastContestNumber + 1 : null);
         $this->placedDrawDate = $this->closing->draw_date ? $this->closing->draw_date->format('Y-m-d') : now()->format('Y-m-d');
         $this->resetErrorBag();
         $this->showMarkAsPlacedModal = true;
@@ -142,6 +144,7 @@ new #[Layout('layouts.app', ['title' => 'Detalhes do fechamento'])] class extend
         $this->closing->update([
             'status' => 'placed',
             'contest_number' => $this->placedContestNumber,
+            'target_contest_number' => $this->placedContestNumber,
             'draw_date' => $this->placedDrawDate ?: null,
         ]);
 

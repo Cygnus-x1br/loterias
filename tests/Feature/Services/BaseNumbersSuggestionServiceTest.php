@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Services;
 
+use App\Models\Closing;
 use App\Models\HistoricalResult;
 use App\Models\User;
 use App\Services\BaseNumbersSuggestionService;
+use App\Services\LotofacilStatisticsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use InvalidArgumentException;
 use Livewire\Volt\Volt;
@@ -131,5 +133,147 @@ class BaseNumbersSuggestionServiceTest extends TestCase
         $this->assertCount(20, $component->get('base_numbers'));
         $this->assertSame(10, $component->get('statisticalReport')['repetitions']);
         $this->assertNotNull($component->get('statisticalReport')['adjustment']);
+    }
+
+    public function test_suggestion_is_deterministic_without_seed(): void
+    {
+        $first = $this->service()->suggest(21, 12);
+        $second = $this->service()->suggest(21, 12);
+
+        $this->assertSame($first['numbers'], $second['numbers']);
+        $this->assertNull($first['report']['seed']);
+    }
+
+    public function test_seed_varies_the_suggestion_reproducibly(): void
+    {
+        $default = $this->service()->suggest(21, 12)['numbers'];
+
+        $this->assertSame($this->service()->suggest(21, 12, 3)['numbers'], $this->service()->suggest(21, 12, 3)['numbers']);
+
+        $variations = array_map(fn (int $seed): array => $this->service()->suggest(21, 12, $seed)['numbers'], range(1, 5));
+        $this->assertNotEmpty(array_filter($variations, fn (array $numbers): bool => $numbers !== $default));
+        $this->assertSame(3, $this->service()->suggest(21, 12, 3)['report']['seed']);
+    }
+
+    public function test_second_closing_prioritizes_numbers_left_out_of_the_first(): void
+    {
+        $first = $this->service()->suggest(21, 12)['numbers'];
+        $leftOut = array_values(array_diff(range(1, 25), $first));
+
+        $second = $this->service()->suggest(21, 12, null, [$first]);
+
+        $this->assertNotSame($first, $second['numbers']);
+        $this->assertSame([], array_values(array_diff($leftOut, $second['numbers'])));
+        $this->assertSame(12, $second['report']['repetitions']);
+        $this->assertSame(1, $second['report']['previous_closings']);
+        $this->assertSame($leftOut, $second['report']['prioritized_numbers']);
+        $this->assertTrue($second['report']['distinct_from_previous']);
+        $this->assertStringContainsString('diferente de todos os anteriores', $second['report']['criteria']['previous']);
+
+        $third = $this->service()->suggest(21, 12, null, [$first, $second['numbers']]);
+
+        $this->assertNotSame($first, $third['numbers']);
+        $this->assertNotSame($second['numbers'], $third['numbers']);
+        $this->assertSame(2, $third['report']['previous_closings']);
+    }
+
+    public function test_reports_when_a_different_group_is_impossible(): void
+    {
+        $suggestion = $this->service()->suggest(25, 15, null, [range(1, 25)]);
+
+        $this->assertFalse($suggestion['report']['distinct_from_previous']);
+        $this->assertStringContainsString('Não foi possível formar um grupo diferente', $suggestion['report']['criteria']['previous']);
+    }
+
+    public function test_swap_keeps_group_sizes_when_the_group_repeats_a_previous_one(): void
+    {
+        $service = new class(app(LotofacilStatisticsService::class)) extends BaseNumbersSuggestionService
+        {
+            public function distinct(array $repeated, array $new, array $lastDrawn, array $candidates, array $scores, array $previous): array
+            {
+                return $this->ensureDistinct($repeated, $new, $lastDrawn, $candidates, $scores, $previous);
+            }
+        };
+
+        $lastDrawn = range(1, 15);
+        $candidates = range(16, 25);
+        $scores = array_fill_keys(range(1, 25), 1.0);
+        $repeated = range(1, 12);
+        $new = range(16, 24);
+        $previous = [array_merge($repeated, $new)];
+
+        [$newRepeated, $newNew, $distinct] = $service->distinct($repeated, $new, $lastDrawn, $candidates, $scores, $previous);
+
+        $group = array_merge($newRepeated, $newNew);
+        sort($group);
+
+        $this->assertTrue($distinct);
+        $this->assertNotSame($previous[0], $group);
+        $this->assertCount(12, $newRepeated);
+        $this->assertCount(9, $newNew);
+        $this->assertSame([], array_values(array_diff($newRepeated, $lastDrawn)));
+    }
+
+    public function test_previous_bases_only_include_own_closings_for_the_same_contest(): void
+    {
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+
+        $sameTarget = Closing::factory()->create(['user_id' => $user->id, 'target_contest_number' => 4, 'base_numbers' => range(1, 21)]);
+        Closing::factory()->create(['user_id' => $user->id, 'contest_number' => 4, 'status' => 'placed', 'base_numbers' => range(5, 25)]);
+        Closing::factory()->create(['user_id' => $user->id, 'target_contest_number' => 5, 'base_numbers' => range(2, 22)]);
+        Closing::factory()->create(['user_id' => $other->id, 'target_contest_number' => 4, 'base_numbers' => range(3, 23)]);
+
+        $this->assertSame([range(1, 21), range(5, 25)], $this->service()->previousBasesFor($user->id, 4));
+        $this->assertSame([range(5, 25)], $this->service()->previousBasesFor($user->id, 4, $sameTarget->id));
+        $this->assertSame([], $this->service()->previousBasesFor($user->id, null));
+        $this->assertSame(4, $this->service()->nextContestNumber());
+    }
+
+    public function test_create_page_builds_a_different_group_for_the_same_contest(): void
+    {
+        $user = User::factory()->create();
+        $firstGroup = $this->service()->suggest(21, 12)['numbers'];
+        Closing::factory()->create(['user_id' => $user->id, 'target_contest_number' => 4, 'base_numbers' => $firstGroup]);
+
+        $component = Volt::actingAs($user)
+            ->test('pages.closings.create')
+            ->assertSet('target_contest_number', 4)
+            ->call('generateStatisticalBaseNumbers', 21, 12, false);
+
+        $this->assertNotSame($firstGroup, $component->get('base_numbers'));
+        $this->assertSame(1, $component->get('statisticalReport')['previous_closings']);
+
+        $component->call('generateStatisticalBaseNumbers', 21, 12, true)
+            ->assertSet('suggestionSeed', 1)
+            ->call('generateStatisticalBaseNumbers', 21, 12, true)
+            ->assertSet('suggestionSeed', 2)
+            ->call('generateStatisticalBaseNumbers', 21, 12, false)
+            ->assertSet('suggestionSeed', null);
+
+        // Para outro concurso, não há fechamento anterior
+        $component->set('target_contest_number', 5)
+            ->call('generateStatisticalBaseNumbers', 21, 12, false);
+
+        $this->assertSame(0, $component->get('statisticalReport')['previous_closings']);
+        $this->assertSame($firstGroup, $component->get('base_numbers'));
+    }
+
+    public function test_edit_page_ignores_the_closing_being_edited(): void
+    {
+        $user = User::factory()->create();
+        $closing = Closing::factory()->create([
+            'user_id' => $user->id,
+            'method' => 'balanced',
+            'target_contest_number' => 4,
+            'base_numbers' => $this->service()->suggest(21, 12)['numbers'],
+        ]);
+
+        $component = Volt::actingAs($user)
+            ->test('pages.closings.edit', ['closing' => $closing])
+            ->assertSet('target_contest_number', 4)
+            ->call('generateStatisticalBaseNumbers', 21, 12, false);
+
+        $this->assertSame(0, $component->get('statisticalReport')['previous_closings']);
     }
 }
