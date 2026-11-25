@@ -9,7 +9,7 @@ Este documento compara o que está implementado no código com a especificação
 ## 1. Visão geral
 
 - **Stack:** PHP 8.3, Laravel 13, Livewire 3 + Volt, Tailwind 4, Vite, Breeze. SQLite no ambiente local sem Docker; MariaDB no Docker e em produção.
-- **Testes:** 228 testes PHPUnit, todos passando.
+- **Testes:** 237 testes PHPUnit, todos passando.
 - **Histórico de desenvolvimento:** 49 commits entre 12/08/2026 e 25/11/2026. Planos e walkthroughs das features de setembro estão em [`development_prompts/`](development_prompts/).
 
 ### 1.1 Modelo de dados
@@ -93,10 +93,10 @@ Legenda: ✅ implementado · 🟡 parcial · ❌ não implementado
 | 21 | Garantia condicional | 🟡 | A auditoria reporta a condição ("garante X se acertar Y no grupo-base"); não há verificador genérico de condições |
 | 22 | Probabilidade de pelo menos uma premiação | ✅ | Cálculo exato em `ClosingProbabilityService` (até 150 apostas), exibido no fechamento |
 | 23 | Simulação de sorteios | ✅ | `MonteCarloSimulationService` + backtesting histórico em `/simulacoes`; **sem semente e sem intervalo de confiança** |
-| 24 | Comparação de algoritmos | ❌ | — |
+| 24 | Comparação de algoritmos | ✅ | Tela "Comparar métodos" (`/fechamentos/comparar`) e `ClosingComparisonService`: gera, sem salvar, apostas dos métodos aleatório, equilibrado, equilibrado + distribuir e reduzido com o mesmo grupo-base, orçamento (2 a 30 apostas) e semente (`mt_srand`), avaliados sobre os 3.268.760 sorteios. Mostra quantidade, custo, chance exata de ≥ 11 a 15 pontos, score (menor, média e maior), redundância, distribuição das dezenas, garantia de 14 pontos (exata, até 20 dezenas), tempo e memória, com selo de classificação. Não compara integral nem roda (dependem de parâmetros próprios) |
 | 25 | Custo e orçamento | ✅ | Configuração por usuário, custo do fechamento, `/financeiro` (ROI por concurso, fechamento e aposta) |
 | 26 | Relatórios e transparência | ✅ | `ClosingTransparencyReportService` e seção "Relatório de transparência" na tela do fechamento: método, grupo-base, apostas, custo, parâmetros, faixa de score, garantia e condições, cenários avaliados, método de validação, limitações, aleatoriedade e aviso de não-previsão. A semente aparece como "não registrada" até a implementação do requisito 3.11 |
-| 27 | Testes | ✅ | 228 testes (Feature e Unit) |
+| 27 | Testes | ✅ | 237 testes (Feature e Unit) |
 | 28 | Desempenho | 🟡 | Geração sob demanda, bitmasks e enumeração exata (≈ 0,1 s por aposta). Fechamentos com 1.000 apostas ou mais (inclui o integral com 20 dezenas ou mais) rodam em segundo plano (`GenerateClosingBetsJob`) com barra de progresso, cancelamento sem deixar apostas parciais e mensagem de erro; exigem o worker da fila ativo. Faltam: informar o tempo e os cenários do modo exato, paralelização e progresso nas auditorias e no otimizador |
 | 29 | Classificação Exato / Heurístico / Simulado | ✅ | Enum `ResultClassification` (Exato, Ótimo comprovado, Viável, Heurístico, Simulado) e selo `<x-result-badge>` no relatório, na chance real de premiação (exato), na auditoria combinatória (exata ou simulada), na auditoria consolidada, no otimizador (heurístico) e no Monte Carlo (simulado); o backtesting é rotulado como resultado histórico. Ciclo, atraso e temperatura seguem rotulados como descritivos |
 | 30 | Regras de comunicação | ✅ | Textos revisados: o otimizador não fala mais em "jogos mais fortes"; a verificação por Monte Carlo deixou de dizer "Garante" e mostra "Sem falhas na amostra"; o Monte Carlo "estima" em vez de "prever"; os textos educativos descrevem a garantia como condicional. Score e temperatura continuam com aviso de que não alteram a probabilidade |
@@ -206,7 +206,7 @@ Em ordem de prioridade:
    - [ ] Busca local sobre a solução gulosa e sobre a distribuição das apostas (maximizar a chance de pelo menos um prêmio).
    - [ ] Simulated annealing.
    - [ ] Algoritmo genético.
-   - [ ] Módulo de comparação entre métodos (mesmo grupo-base, orçamento e semente), usando `ClosingProbabilityService`.
+   - [x] Módulo de comparação entre métodos (mesmo grupo-base, orçamento e semente), usando `ClosingProbabilityService`. Inclua os métodos de otimização avançada nele quando existirem.
 7. **Rodas e cobertura** (Itens 8 e 16)
    - [ ] Calcular cobertura de pares e trincas nas rodas.
    - [ ] Pesos por cenário.

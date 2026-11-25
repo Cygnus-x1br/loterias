@@ -93,6 +93,17 @@
                     </a>
 
                     <a
+                        href="{{ route('closings.compare') }}"
+                        @class([
+                            'sidebar-link text-xs pl-7',
+                            '!text-indigo-700 font-semibold' => request()->routeIs('closings.compare'),
+                        ])
+                    >
+                        <span>↳</span>
+                        Comparar métodos
+                    </a>
+
+                    <a
                         href="{{ route('closings.consolidated_audit') }}"
                         @class([
                             'sidebar-link text-xs pl-7',
